@@ -1,0 +1,556 @@
+@using FAST.FormDesigner.Services
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@inject IDesignerFragmentRepository FragmentRepo
+@inject IJSRuntime           JS
+
+<div class="fd-editor-root">
+
+    @* ── TOOLBAR ── *@
+    <div class="fd-toolbar">
+        <a href="/" class="fd-tool-btn fd-dashboard-btn" title="Back to Dashboard">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+        </a>
+        <div class="fd-toolbar-divider"></div>
+        <div class="fd-toolbar-group">
+
+            @* ── New button (with dirty guard) ── *@
+            <button class="fd-tool-btn" title="New Fragment" @onclick="HandleNew">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+            </button>
+
+            @* ── File dropdown ── *@
+            <div class="fd-file-menu-wrapper">
+                <button class="fd-tool-btn fd-file-menu-btn @(_fileMenuOpen ? "active" : "")"
+                        title="File menu"
+                        @onclick="() => _fileMenuOpen = !_fileMenuOpen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                        <polyline points="13 2 13 9 20 9"/>
+                    </svg>
+                    <span class="fd-file-menu-label">File</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+
+                @if (_fileMenuOpen)
+                {
+                    <div class="fd-file-menu-dropdown">
+                        <button class="fd-file-menu-item" @onclick="async () => { _fileMenuOpen = false; await HandleSave(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/></svg>
+                            Save to Repository
+                        </button>
+                        <button class="fd-file-menu-item" @onclick="async () => { _fileMenuOpen = false; await HandleSaveLocal(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Save Local
+                        </button>
+                        <div class="fd-file-menu-divider"></div>
+                        <button class="fd-file-menu-item" @onclick="() => { _fileMenuOpen = false; _loadModal?.Open(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            Load
+                        </button>
+                    </div>
+                    <div class="fd-file-menu-overlay" @onclick="() => _fileMenuOpen = false"></div>
+                }
+            </div>
+
+        </div>
+        <div class="fd-toolbar-spacer"></div>
+        <div class="fd-toolbar-title">
+            @if (_isDirty){ <span class="fd-unsaved">●</span> }
+            @if (_editingTitle)
+            {
+                <input class="fd-title-input"
+                       @ref="_titleInputRef"
+                       value="@_fragment.Name"
+                       @oninput="e => { _fragment.Name = e.Value?.ToString() ?? string.Empty; _isDirty = true; }"
+                       @onblur="CommitTitle"
+                       @onkeydown="HandleTitleKey" />
+            }
+            else
+            {
+                <span class="fd-title-text" title="Click to rename" @onclick="StartEditTitle">@_fragment.Name</span>
+            }
+        </div>
+        <div class="fd-toolbar-divider"></div>
+        <button class="fd-tool-btn fd-preview-toggle-btn @(_previewMode ? "active" : "")"
+                title="Preview this fragment"
+                @onclick="TogglePreview">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span style="font-size:12px; margin-left:4px;">Preview</span>
+        </button>
+    </div>
+
+    <div class="fd-main-layout">
+
+        @* ── LEFT: Field Toolbox ── *@
+        <div class="fd-stencil">
+            <div class="fd-stencil-header">
+                <div class="fd-stencil-title">Field Toolbox</div>
+            </div>
+
+            <div class="fd-stencil-group">
+                <div class="fd-stencil-group-header @(_expandedGroup == "Standard" ? "expanded" : "")"
+                     @onclick='() => ToggleGroup("Standard")'>
+                    <span class="fd-stencil-group-title">Standard</span>
+                    <span class="fd-stencil-group-arrow">@(_expandedGroup == "Standard" ? "▼" : "▶")</span>
+                </div>
+                @if (_expandedGroup == "Standard")
+                {
+                    <div class="fd-stencil-items">
+                        @foreach (var item in FieldToolboxFactory.GetStandardFields())
+                        {
+                            var i = item;
+                            <div class="fd-stencil-item" title="@i.Description"
+                                 @onclick="() => AddField(i.Type, FieldCategory.Standard)">
+                                <div class="fd-field-type-icon">@GetFieldIcon(i.Type)</div>
+                                <span class="fd-stencil-label">@i.DisplayName</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="fd-stencil-group">
+                <div class="fd-stencil-group-header @(_expandedGroup == "Advanced" ? "expanded" : "")"
+                     @onclick='() => ToggleGroup("Advanced")'>
+                    <span class="fd-stencil-group-title">Advanced</span>
+                    <span class="fd-stencil-group-arrow">@(_expandedGroup == "Advanced" ? "▼" : "▶")</span>
+                </div>
+                @if (_expandedGroup == "Advanced")
+                {
+                    <div class="fd-stencil-items">
+                        @foreach (var item in FieldToolboxFactory.GetAdvancedFields())
+                        {
+                            var i = item;
+                            <div class="fd-stencil-item" title="@i.Description"
+                                 @onclick="() => AddField(i.Type, FieldCategory.Advanced)">
+                                <div class="fd-field-type-icon fd-advanced-icon">@GetFieldIcon(i.Type)</div>
+                                <span class="fd-stencil-label">@i.DisplayName</span>
+                            </div>
+                        }
+                    </div>
+                }
+            </div>
+
+            <div class="fd-stencil-hint">
+                <span class="fd-hint-idle">Click a field type to add it</span>
+            </div>
+        </div>
+
+        @* ── CENTRE: Fragment Canvas ── *@
+        <div class="fd-canvas-wrapper">
+
+            <div class="fd-fragment-meta-bar">
+                <div class="fd-prop-group fd-meta-inline">
+                    <label class="fd-prop-label">Fragment Name</label>
+                    <input class="fd-prop-input"
+                           value="@_fragment.Name"
+                           @oninput="e => { _fragment.Name = e.Value?.ToString() ?? string.Empty; _isDirty = true; }"
+                           placeholder="Fragment name…" />
+                </div>
+                <div class="fd-prop-group fd-meta-inline">
+                    <label class="fd-prop-label">Category</label>
+                    <input class="fd-prop-input"
+                           value="@_fragment.Category"
+                           @oninput="e => { _fragment.Category = e.Value?.ToString() ?? string.Empty; _isDirty = true; }"
+                           placeholder="e.g. Master Data, Address…" />
+                </div>
+
+                @* ── Repeating toggle ── *@
+                <div class="fd-prop-group fd-meta-inline fd-meta-inline-narrow">
+                    <label class="fd-prop-label">Repeating</label>
+                    <label class="fd-checkbox-label">
+                        <input type="checkbox" checked="@_fragment.IsRepeating"
+                               @onchange="OnIsRepeatingChanged" />
+                        Multi-row
+                    </label>
+                </div>
+
+                @if (_fragment.IsRepeating)
+                {
+                    <div class="fd-prop-group fd-meta-inline fd-meta-inline-narrow">
+                        <label class="fd-prop-label">View Mode</label>
+                        <select class="fd-prop-select"
+                                value="@_fragment.ViewMode.ToString()"
+                                @onchange="OnViewModeChanged">
+                            <option value="Grid">Grid</option>
+                            <option value="Card">Card</option>
+                        </select>
+                    </div>
+
+                    <div class="fd-prop-group fd-meta-inline fd-meta-inline-narrow">
+                        <label class="fd-prop-label">Min Rows</label>
+                        <select class="fd-prop-select"
+                                value="@MinRowsDisplay"
+                                @onchange="OnMinRowsChanged">
+                            <option value="0">0 — Empty start</option>
+                            <option value="1">1 — One blank row</option>
+                            <option value="2">2 — Two blank rows</option>
+                            <option value="3">3 — Three blank rows</option>
+                            <option value="5">5 — Five blank rows</option>
+                            <option value="custom">Custom…</option>
+                        </select>
+                        @if (_customMinRows)
+                        {
+                            <input class="fd-prop-input" type="number" min="0" max="50"
+                                   value="@_fragment.MinRows"
+                                   @oninput="e => { if (int.TryParse(e.Value?.ToString(), out var v)) { _fragment.MinRows = Math.Max(0, v); _isDirty = true; } }"
+                                   style="margin-top:4px;" />
+                        }
+                    </div>
+                }
+            </div>
+
+            @if (!_fragment.Fields.Any())
+            {
+                <div class="fd-canvas-empty">
+                    <div class="fd-canvas-empty-icon">⊞</div>
+                    <div>Click a field type in the toolbox to add it to this fragment</div>
+                </div>
+            }
+            else
+            {
+                <div class="fd-fragment-fields-canvas">
+                    @for (int i = 0; i < _fragment.Fields.Count; i++)
+                    {
+                        var idx   = i;
+                        var field = _fragment.Fields[idx];
+                        var total = _fragment.Fields.Count;
+
+                        <div class="fd-field-card @(_selectedFieldId == field.Id ? "fd-field-card-selected" : "") fd-col-@((int)field.ColumnSpan)"
+                             @onclick="() => SelectField(field.Id)">
+
+                            <div class="fd-field-card-header">
+                                @* ── Up/Down reorder buttons ── *@
+                                <div class="fd-reorder-btns">
+                                    @if (idx > 0)
+                                    {
+                                        <button class="fd-reorder-btn" title="Move Up"
+                                                @onclick:stopPropagation="true"
+                                                @onclick="() => MoveField(idx, -1)">▲</button>
+                                    }
+                                    @if (idx < total - 1)
+                                    {
+                                        <button class="fd-reorder-btn" title="Move Down"
+                                                @onclick:stopPropagation="true"
+                                                @onclick="() => MoveField(idx, 1)">▼</button>
+                                    }
+                                </div>
+                                <span class="fd-field-type-badge">@field.Type</span>
+                                <span class="fd-field-card-label">@field.Label</span>
+                                @if (field.Category == FieldCategory.Advanced)
+                                {
+                                    <span class="fd-advanced-badge">⚡</span>
+                                }
+                                <button class="fd-var-delete" title="Remove field"
+                                        @onclick:stopPropagation="true"
+                                        @onclick="() => RemoveField(idx)">✕</button>
+                            </div>
+
+                            <div class="fd-field-card-preview">
+                                <div class="fd-preview-label">@field.Label</div>
+                                <div class="fd-preview-input">@GetPreviewText(field)</div>
+                                @if (!string.IsNullOrWhiteSpace(field.HintText))
+                                {
+                                    <div class="fd-preview-hint">@field.HintText</div>
+                                }
+                            </div>
+
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        @* ── RIGHT: Field Properties Panel ── *@
+        <div class="fd-right-panel">
+            @if (_selectedField is not null)
+            {
+                <FieldPropertiesPanel Field="@_selectedField"
+                                      AllFragments="@_allFragments"
+                                      OnChanged="HandleFieldChanged" />
+            }
+            else
+            {
+                <div class="fd-props-empty">
+                    <span>Select a field to edit its properties.</span>
+                </div>
+            }
+        </div>
+
+    </div>
+
+    @* ── New confirmation dialog ── *@
+    @if (_newConfirmVisible)
+    {
+        <div class="fd-modal-backdrop" @onclick="() => _newConfirmVisible = false"></div>
+        <div class="fd-confirm-dialog">
+            <div class="fd-confirm-icon">⚠</div>
+            <div class="fd-confirm-title">Unsaved Changes</div>
+            <div class="fd-confirm-text">You have unsaved changes. Creating a new fragment will discard them. Continue?</div>
+            <div class="fd-confirm-actions">
+                <button class="fd-btn fd-btn-danger" @onclick="DoNew">Discard &amp; New</button>
+                <button class="fd-btn fd-btn-ghost" @onclick="() => _newConfirmVisible = false">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @* ── Load Design Modal ── *@
+    <LoadDesignModal @ref="_loadModal"
+                     EntityType="Fragment"
+                     IsDirty="@_isDirty"
+                     OnFragmentLoaded="HandleFragmentLoaded" />
+
+    @* ── FRAGMENT PREVIEW OVERLAY ── *@
+    @if (_previewMode)
+    {
+        <FragmentPreview Fragment="@_fragment" OnExitPreview="TogglePreview" />
+    }
+
+</div>
+
+@code {
+    [Parameter] public string? FragmentId { get; set; }
+
+    private FormFragment          _fragment       = new();
+    private List<FragmentSummary> _allFragments   = new();
+    private string?               _selectedFieldId;
+    private FieldDefinition?      _selectedField;
+    private string                _expandedGroup  = "Standard";
+    private bool                  _isDirty;
+    private bool                  _previewMode      = false;
+    private bool                  _fileMenuOpen     = false;
+    private bool                  _editingTitle     = false;
+    private ElementReference      _titleInputRef;
+    private bool                  _newConfirmVisible = false;
+    private LoadDesignModal?      _loadModal;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _allFragments = await FragmentRepo.GetAllSummariesAsync();
+        if (!string.IsNullOrWhiteSpace(FragmentId))
+        {
+            var loaded = await FragmentRepo.GetByIdAsync(FragmentId);
+            if (loaded is not null) _fragment = loaded;
+        }
+    }
+
+    // ── Field Toolbox ─────────────────────────────────────────────────────────
+
+    private void AddField(FieldType type, FieldCategory category)
+    {
+        var field = new FieldDefinition
+        {
+            Type           = type,
+            Category       = category,
+            Label          = $"New {type} Field",
+            Key            = $"field{_fragment.Fields.Count + 1}",
+            Order          = _fragment.Fields.Count,
+            ColumnSpan     = ColumnSpan.Two,
+            MetaServiceKey = category == FieldCategory.Advanced ? type.ToString() : null
+        };
+
+        if (type == FieldType.Grid)
+        {
+            field.GridColumns = new List<GridColumnDefinition>
+            {
+                new() { Key="col1", Header="Column 1", Type=FieldType.Text, Width=150 },
+                new() { Key="col2", Header="Column 2", Type=FieldType.Text, Width=150 }
+            };
+            field.ColumnSpan = ColumnSpan.Four;
+        }
+
+        _fragment.Fields.Add(field);
+        SelectField(field.Id);
+        MarkDirty();
+    }
+
+    private void RemoveField(int idx)
+    {
+        if (idx < 0 || idx >= _fragment.Fields.Count) return;
+        var removing = _fragment.Fields[idx];
+        _fragment.Fields.RemoveAt(idx);
+        if (_selectedFieldId == removing.Id) { _selectedFieldId = null; _selectedField = null; }
+        Resequence();
+        MarkDirty();
+    }
+
+    private void MoveField(int idx, int direction)
+    {
+        var newIdx = idx + direction;
+        if (newIdx < 0 || newIdx >= _fragment.Fields.Count) return;
+        var item = _fragment.Fields[idx];
+        _fragment.Fields.RemoveAt(idx);
+        _fragment.Fields.Insert(newIdx, item);
+        Resequence();
+        MarkDirty();
+    }
+
+    private void Resequence()
+    {
+        for (int i = 0; i < _fragment.Fields.Count; i++)
+            _fragment.Fields[i].Order = i;
+    }
+
+    private void SelectField(string fieldId)
+    {
+        _selectedFieldId = fieldId;
+        _selectedField   = _fragment.Fields.FirstOrDefault(f => f.Id == fieldId);
+    }
+
+    private void HandleFieldChanged() => MarkDirty();
+
+    private void HandleNew()
+    {
+        if (_isDirty) { _newConfirmVisible = true; StateHasChanged(); return; }
+        DoNew();
+    }
+
+    private void DoNew()
+    {
+        _fragment          = new FormFragment();
+        _selectedFieldId   = null;
+        _selectedField     = null;
+        _isDirty           = false;
+        _newConfirmVisible = false;
+        StateHasChanged();
+    }
+
+    private async Task HandleSave()
+    {
+        await FragmentRepo.SaveAsync(_fragment);
+        _isDirty = false;
+    }
+
+    private async Task HandleSaveLocal()
+    {
+        // Ensure the fragment ID matches the filename so it can be fetched back
+        // by ID when the layout is reloaded.
+        var safeName = string.IsNullOrWhiteSpace(_fragment.Name)
+            ? _fragment.Id
+            : System.Text.RegularExpressions.Regex.Replace(
+                _fragment.Name.Trim().ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+
+        // Only update Id if it looks like a GUID (auto-generated) — keep custom IDs
+        if (_fragment.Id.Contains('-') && _fragment.Id.Length == 36)
+            _fragment.Id = safeName;
+
+        var json = System.Text.Json.JsonSerializer.Serialize(_fragment,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("downloadJson", $"{safeName}.fieldset", json);
+    }
+
+    private void HandleFragmentLoaded(FormFragment fragment)
+    {
+        _fragment        = fragment;
+        _isDirty         = false;
+        _selectedFieldId = null;
+        _selectedField   = null;
+        StateHasChanged();
+    }
+
+    private async Task StartEditTitle()
+    {
+        _editingTitle = true;
+        StateHasChanged();
+        await Task.Delay(50);
+        try { await JS.InvokeVoidAsync("focusElement", _titleInputRef); } catch { }
+    }
+
+    private void CommitTitle()
+    {
+        _editingTitle = false;
+        if (string.IsNullOrWhiteSpace(_fragment.Name))
+            _fragment.Name = "New Fragment";
+        StateHasChanged();
+    }
+
+    private void HandleTitleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "Escape")
+            CommitTitle();
+    }
+
+    private string MinRowsDisplay => _fragment.MinRows switch
+    {
+        0 => "0", 1 => "1", 2 => "2", 3 => "3", 5 => "5",
+        _ => "custom"
+    };
+
+    private bool _customMinRows => !new[]{0,1,2,3,5}.Contains(_fragment.MinRows);
+
+    private void OnIsRepeatingChanged(ChangeEventArgs e)
+    {
+        _fragment.IsRepeating = e.Value is bool b ? b : e.Value?.ToString() == "true";
+        _isDirty = true;
+        StateHasChanged();
+    }
+
+    private void OnViewModeChanged(ChangeEventArgs e)
+    {
+        if (Enum.TryParse<RepeatingViewMode>(e.Value?.ToString(), out var vm))
+        { _fragment.ViewMode = vm; _isDirty = true; }
+    }
+
+    private void OnMinRowsChanged(ChangeEventArgs e)
+    {
+        var val = e.Value?.ToString();
+        if (val == "custom") { _fragment.MinRows = 0; }
+        else if (int.TryParse(val, out var v)) { _fragment.MinRows = v; }
+        _isDirty = true;
+        StateHasChanged();
+    }
+
+    private void TogglePreview()
+    {
+        _previewMode = !_previewMode;
+        StateHasChanged();
+    }
+
+    private void ToggleGroup(string name) =>
+        _expandedGroup = _expandedGroup == name ? string.Empty : name;
+
+    private void MarkDirty() { _isDirty = true; StateHasChanged(); }
+
+    private static string GetFieldIcon(FieldType type) => type switch
+    {
+        FieldType.Text          => "T",
+        FieldType.Number        => "#",
+        FieldType.Date          => "📅",
+        FieldType.Checkbox      => "☑",
+        FieldType.ListOfValues  => "▼",
+        FieldType.TextArea      => "¶",
+        FieldType.Grid          => "⊞",
+        FieldType.CustomerLookup=> "👤",
+        FieldType.ProductSearch => "🔍",
+        FieldType.FileUpload    => "📎",
+        _                       => "⚡"
+    };
+
+    private static string GetPreviewText(FieldDefinition field) => field.Type switch
+    {
+        FieldType.Text          => $"[{field.Placeholder.OrDefault("Text input")}]",
+        FieldType.Number        => "[0.00]",
+        FieldType.Date          => "[dd/mm/yyyy]",
+        FieldType.Checkbox      => "[ ] Checkbox",
+        FieldType.ListOfValues  => $"[{field.ListOptions?.Split('|').FirstOrDefault() ?? "Select…"}]",
+        FieldType.TextArea      => "[Multi-line text…]",
+        FieldType.Grid          => $"[Grid — {field.GridColumns?.Count ?? 0} columns]",
+        FieldType.CustomerLookup=> "[Search customer…]",
+        FieldType.ProductSearch => "[Search product…]",
+        _                       => $"[{field.Type}]"
+    };
+}

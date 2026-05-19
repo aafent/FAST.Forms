@@ -1,0 +1,337 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@inject IFormLayoutRepository  LayoutRepo
+@inject IFormFragmentRepository FragmentRepo
+@inject FormStateContainer  State
+@inject FormFragmentCache   Cache
+@inject FAST.FormDesigner.Runtime.Services.FormValidationService Validator
+@implements IDisposable
+
+@* ─────────────────────────────────────────────────────────────────────────────
+   FormRenderer — the top-level runtime rendering engine.
+
+   Responsibilities:
+   1. Load the FormLayout by ID
+   2. Initialise FormStateContainer for this form session
+   3. Walk the layout tree recursively via LayoutNode
+   4. Provide Submit / Reset actions
+   5. Run FormValidationService on submit across all fragments
+───────────────────────────────────────────────────────────────────────────── *@
+
+<div class="fd-form-root">
+
+    @* ── Header bar ── *@
+    <div class="fd-form-header">
+        <div class="fd-form-title">
+            @if (State.IsSubmitting)
+            {
+                <span class="fd-spinner fd-spinner-sm"></span>
+            }
+            @_layout?.Name
+        </div>
+        <div class="fd-form-actions">
+            <button class="fd-btn fd-btn-ghost"
+                    @onclick="HandleReset"
+                    disabled="@State.IsSubmitting">
+                Reset
+            </button>
+            <button class="fd-btn fd-btn-primary"
+                    @onclick="HandleSubmit"
+                    disabled="@State.IsSubmitting">
+                @(State.IsSubmitting ? "Saving…" : "Save")
+            </button>
+        </div>
+    </div>
+
+    @* ── Loading state ── *@
+    @if (_loading)
+    {
+        <div class="fd-form-loading">
+            <span class="fd-spinner"></span>
+            Loading form…
+        </div>
+    }
+    else if (_layout is null)
+    {
+        <div class="fd-form-error">
+            ⚠ Layout not found: <code>@LayoutId</code>
+        </div>
+    }
+    else
+    {
+        @* ── Global validation summary (shown after first submit attempt) ── *@
+        @if (State.HasBeenSubmitted && State.HasAnyErrors())
+        {
+            <div class="fd-validation-summary">
+                <div class="fd-validation-summary-header">
+                    <span class="fd-val-icon fd-val-error">⚠</span>
+                    Please correct the following errors:
+                </div>
+                <ul class="fd-validation-list">
+                    @foreach (var err in State.GetAllErrors())
+                    {
+                        <li class="fd-val-item">
+                            <strong>@err.FieldKey</strong>: @err.Message
+                        </li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @* ── Layout tree — recursive from root containers ── *@
+        <div class="fd-form-body fd-node-grid">
+            @foreach (var container in _layout.Containers.OrderBy(c => c.Order))
+            {
+                <LayoutContainer Container="@container" OnFieldChanging="OnFieldChanging" />
+            }
+        </div>
+    }
+
+    @* ── Submit success banner ── *@
+    @if (_submitSuccess)
+    {
+        <div class="fd-submit-banner fd-submit-ok">
+            ✓ Form submitted successfully.
+        </div>
+    }
+
+</div>
+
+@code {
+    /// <summary>ID of the FormLayout to render. Used when Layout is null.</summary>
+    [Parameter] public string      LayoutId { get; set; } = string.Empty;
+
+    /// <summary>Pre-loaded layout object. Takes priority over LayoutId.</summary>
+    [Parameter] public FormLayout? Layout   { get; set; }
+
+    /// <summary>
+    /// Called after a valid submit. Receives the full payload:
+    /// Dictionary keyed by "{fragmentId}:{fieldKey}".
+    /// </summary>
+    [Parameter] public EventCallback<Dictionary<string, object?>> OnSubmit { get; set; }
+
+    /// <summary>Called after the form is reset.</summary>
+    [Parameter] public EventCallback OnReset      { get; set; }
+    [Parameter] public bool           PreserveValues { get; set; } = false;
+
+    /// <summary>Field change interceptor — passed down to every FieldRenderer.</summary>
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private FormLayout?        _layout       = null;
+    private List<FormFragment> _fragments    = new();
+    private bool               _loading      = true;
+    private bool               _submitSuccess;
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    private string? _lastLayoutId;
+    private int     _lastLayoutVersion; // stable change detector: id + container count + field count
+
+    protected override async Task OnParametersSetAsync()
+    {
+        // Only re-initialise when the layout actually changes — not on every re-render.
+        // ForceRefresh/StateHasChanged triggers OnParametersSetAsync too; guard against it.
+        var incomingId      = Layout?.Id ?? LayoutId;
+        var incomingVersion = ComputeLayoutVersion(Layout, LayoutId);
+
+        if (incomingId == _lastLayoutId && incomingVersion == _lastLayoutVersion)
+            return;
+
+        _lastLayoutId      = incomingId;
+        _lastLayoutVersion = incomingVersion;
+
+        _loading       = true;
+        _submitSuccess = false;
+
+        _layout = Layout ?? await LayoutRepo.GetByIdAsync(LayoutId);
+
+        if (_layout is not null)
+        {
+            if (PreserveValues) State.InitialiseFormKeepValues(_layout?.Id ?? LayoutId);
+            else State.InitialiseForm(LayoutId);
+
+            _fragments = await LoadAllFragmentsAsync(_layout!);
+        }
+
+        _loading = false;
+    }
+
+    /// <summary>
+    /// Stable content-based version number for a layout.
+    /// Uses ID hash + container count + total assigned fragment count.
+    /// Detects layout switches and structural changes without relying on
+    /// unstable object.GetHashCode().
+    /// </summary>
+    private static int ComputeLayoutVersion(FormLayout? layout, string? layoutId)
+    {
+        if (layout is null) return layoutId?.GetHashCode() ?? 0;
+
+        var containerCount = CountContainers(layout.Containers);
+        var fragmentCount  = CountFragments(layout.Containers);
+        return HashCode.Combine(layout.Id, containerCount, fragmentCount);
+    }
+
+    private static int CountContainers(List<LayoutNode> nodes)
+    {
+        int count = nodes.Count;
+        foreach (var n in nodes) count += CountContainers(n.Children);
+        return count;
+    }
+
+    private static int CountFragments(List<LayoutNode> nodes)
+    {
+        int count = 0;
+        foreach (var n in nodes)
+        {
+            if (n.Area?.AssignedFragmentId is not null) count++;
+            count += CountFragments(n.Children);
+        }
+        return count;
+    }
+
+    public void Dispose() { /* nothing to unsubscribe */ }
+
+    // ── Fragment pre-loading ──────────────────────────────────────────────────
+
+    private async Task<List<FormFragment>> LoadAllFragmentsAsync(FormLayout layout)
+    {
+        var fragmentIds = new HashSet<string>();
+        CollectFragmentIds(layout.Containers, fragmentIds);
+
+        var tasks = fragmentIds.Select(id => FragmentRepo.GetByIdAsync(id));
+        var results = await Task.WhenAll(tasks);
+        return results.Where(f => f is not null).Cast<FormFragment>().ToList();
+    }
+
+    private static void CollectFragmentIds(
+        IEnumerable<LayoutNode> containers,
+        HashSet<string> ids)
+    {
+        foreach (var c in containers)
+        {
+            if (c.Area?.AssignedFragmentId is { } fid)
+                ids.Add(fid);
+            if (c.Children.Any())
+                CollectFragmentIds(c.Children, ids);
+        }
+    }
+
+    // ── Submit ────────────────────────────────────────────────────────────────
+
+    private async Task HandleSubmit()
+    {
+        State.MarkSubmitting(true);
+        _submitSuccess = false;
+
+        // Validate all fragments
+        var isValid = await Validator.ValidateAllAsync(_fragments);
+
+        if (!isValid)
+        {
+            State.MarkSubmitting(false);
+            return;
+        }
+
+        // Build structured Data Document
+        var scopes  = BuildDataDocumentScopes(_layout!.Containers);
+        var payload = State.GetDataDocument(scopes);
+        await OnSubmit.InvokeAsync(payload);
+
+        State.MarkSubmitting(false);
+        _submitSuccess = true;
+    }
+
+    private List<DataDocumentScope> BuildDataDocumentScopes(List<LayoutNode> containers)
+    {
+        var scopes = new List<DataDocumentScope>();
+        WalkContainers(containers, scopes);
+        return scopes;
+    }
+
+    private void WalkContainers(List<LayoutNode> containers, List<DataDocumentScope> scopes)
+    {
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area?.AssignedFragmentId is not null)
+            {
+                // Find the fragment in the loaded list
+                var frag = _fragments.FirstOrDefault(f => f.Id == node.Area.AssignedFragmentId);
+                if (frag is not null)
+                {
+                    var instanceKey = string.IsNullOrWhiteSpace(node.Area.DataKey)
+                        ? node.Area.AssignedFragmentId
+                        : node.Area.DataKey;
+
+                    scopes.Add(new DataDocumentScope
+                    {
+                        InstanceKey = instanceKey,
+                        DataKey     = node.Area.DataKey,
+                        FieldKeys   = frag.Fields.Select(f => f.Key).ToList(),
+                        IsRepeating = frag.IsRepeating
+                    });
+                }
+            }
+            if (node.Children.Any())
+                WalkContainers(node.Children, scopes);
+        }
+    }
+
+    // ── Reset ─────────────────────────────────────────────────────────────────
+
+    private async Task HandleReset()
+    {
+        State.Reset();
+        _submitSuccess = false;
+        await OnReset.InvokeAsync();
+    }
+
+    /// <summary>Forces a full re-render of the form tree. Called by FastForm.Refresh().</summary>
+    public void ForceRefresh() => StateHasChanged();
+
+    /// <summary>
+    /// Returns the current Data Document scopes for the loaded layout.
+    /// Used by FastForm's public API (SetValues, GetValues) to resolve
+    /// field keys without duplicating the layout-walking logic.
+    /// Falls back to FragmentCache if _fragments not yet populated.
+    /// </summary>
+    public List<DataDocumentScope> GetScopes()
+    {
+        if (_layout is null) return new();
+
+        // If fragments loaded — use them directly
+        if (_fragments.Any())
+            return BuildDataDocumentScopes(_layout.Containers);
+
+        // Fallback: resolve from cache (available once form has rendered)
+        var scopes = new List<DataDocumentScope>();
+        WalkContainersWithCache(_layout.Containers, scopes);
+        return scopes;
+    }
+
+    private void WalkContainersWithCache(List<LayoutNode> containers, List<DataDocumentScope> scopes)
+    {
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area?.AssignedFragmentId is not null)
+            {
+                var frag = Cache.GetSync(node.Area.AssignedFragmentId);
+                if (frag is not null)
+                {
+                    var instanceKey = string.IsNullOrWhiteSpace(node.Area.DataKey)
+                        ? node.Area.AssignedFragmentId
+                        : node.Area.DataKey;
+
+                    scopes.Add(new DataDocumentScope
+                    {
+                        InstanceKey = instanceKey,
+                        DataKey     = node.Area.DataKey,
+                        FieldKeys   = frag.Fields.Select(f => f.Key).ToList(),
+                        IsRepeating = frag.IsRepeating
+                    });
+                }
+            }
+            if (node.Children.Any())
+                WalkContainersWithCache(node.Children, scopes);
+        }
+    }
+}

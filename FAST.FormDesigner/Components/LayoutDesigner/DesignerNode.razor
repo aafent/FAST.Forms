@@ -1,0 +1,270 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+
+@if (Container is null) { return; }
+
+<div class="fd-designer-node fd-col-@((int)Container.ColumnSpan)
+            @(IsSelected ? "fd-node-selected" : "")
+            @(Container.Type == ContainerType.Area && ActiveFragmentId is not null ? "fd-node-assignable" : "")"
+     @onclick:stopPropagation="true"
+     @onclick="HandleClick">
+
+    @* ── Node header bar ── *@
+    <div class="fd-node-header">
+        <span class="fd-node-type-badge">@Container.Type</span>
+        <span class="fd-node-label">@Container.Label</span>
+        <div class="fd-node-actions">
+
+            @* ── Reorder buttons ── *@
+            @if (SiblingList is not null && SiblingList.Count > 1)
+            {
+                var myIdx = SiblingList.IndexOf(Container);
+                @if (myIdx > 0)
+                {
+                    <button class="fd-tool-btn fd-btn-xs" title="Move Up"
+                            @onclick:stopPropagation="true"
+                            @onclick="MoveUp">▲</button>
+                }
+                @if (myIdx < SiblingList.Count - 1)
+                {
+                    <button class="fd-tool-btn fd-btn-xs" title="Move Down"
+                            @onclick:stopPropagation="true"
+                            @onclick="MoveDown">▼</button>
+                }
+            }
+
+            @* ── Add children ── *@
+            @if (Container.Type == ContainerType.TabControl)
+            {
+                <button class="fd-tool-btn fd-btn-xs" title="Add Tab"
+                        @onclick:stopPropagation="true"
+                        @onclick="() => OnAddChild.InvokeAsync((Container.Id, ContainerType.TabPage))">
+                    + Tab
+                </button>
+            }
+            @if (Container.Type is ContainerType.Group or ContainerType.TabPage)
+            {
+                <button class="fd-tool-btn fd-btn-xs" title="Add Area"
+                        @onclick:stopPropagation="true"
+                        @onclick="() => OnAddChild.InvokeAsync((Container.Id, ContainerType.Area))">
+                    + Area
+                </button>
+            }
+
+            <button class="fd-node-delete" title="Delete"
+                    @onclick:stopPropagation="true"
+                    @onclick="() => OnDeleteContainer.InvokeAsync(Container.Id)">✕</button>
+        </div>
+    </div>
+
+    @* ── Node body ── *@
+    <div class="fd-node-body">
+
+        @switch (Container.Type)
+        {
+            // ── AREA ─────────────────────────────────────────────────────────
+            case ContainerType.Area:
+            {
+                var area = Container.Area;
+                <div class="fd-area-slot @(ActiveFragmentId is not null ? "fd-area-can-receive" : "")"
+                     @onclick:stopPropagation="true"
+                     @onclick="HandleAreaClick">
+                    @if (area is not null && !string.IsNullOrWhiteSpace(area.AssignedFragmentId))
+                    {
+                        <div class="fd-area-assigned">
+                            <span class="fd-fragment-icon">F</span>
+                            <span class="fd-area-fragment-name">@GetFragmentName(area.AssignedFragmentId)</span>
+                            <button class="fd-area-unassign" title="Unassign fragment"
+                                    @onclick:stopPropagation="true"
+                                    @onclick="() => UnassignFragment(area)">✕</button>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="fd-area-empty @(ActiveFragmentId is not null ? "fd-area-pulse" : "")">
+                            <span class="fd-placeholder-icon">⬚</span>
+                            <span class="fd-placeholder-hint">
+                                @(ActiveFragmentId is not null
+                                    ? "Click to assign selected fragment"
+                                    : (area?.PlaceholderHint ?? "No fragment assigned"))
+                            </span>
+                        </div>
+                    }
+                </div>
+                break;
+            }
+
+            // ── GROUP ─────────────────────────────────────────────────────────
+            case ContainerType.Group:
+            {
+                <div class="fd-node-grid">
+                    @foreach (var child in Container.Children.OrderBy(c => c.Order))
+                    {
+                        <DesignerNode Container="@child"
+                                      ActiveFragmentId="@ActiveFragmentId"
+                                      SelectedContainerId="@SelectedContainerId"
+                                      FragmentNames="@FragmentNames"
+                                      SiblingList="@Container.Children"
+                                      OnAssignFragment="OnAssignFragment"
+                                      OnSelectContainer="OnSelectContainer"
+                                      OnDeleteContainer="OnDeleteContainer"
+                                      OnAddChild="OnAddChild"
+                                      OnReordered="OnReordered" />
+                    }
+                </div>
+                break;
+            }
+
+            // ── TAB CONTROL ───────────────────────────────────────────────────
+            case ContainerType.TabControl:
+            {
+                var tabs = Container.Children
+                    .Where(c => c.Type == ContainerType.TabPage)
+                    .OrderBy(c => c.Order).ToList();
+
+                if (!tabs.Any()) break;
+                if (string.IsNullOrEmpty(_activeTabId))
+                    _activeTabId = tabs.First().Id;
+
+                <div class="fd-tab-bar">
+                    @foreach (var tab in tabs)
+                    {
+                        var t = tab;
+                        <div class="fd-tab-btn-designer @(_activeTabId == t.Id ? "active" : "") @(SelectedContainerId == t.Id ? "fd-tab-selected" : "")"
+                             title="Click to select and edit tab name in Properties panel"
+                             @onclick:stopPropagation="true"
+                             @onclick="() => { _activeTabId = t.Id; OnSelectContainer.InvokeAsync(t.Id); }">
+                            @t.Label
+                            @if (SelectedContainerId == t.Id){ <span class="fd-tab-edit-hint">✎</span> }
+                        </div>
+                    }
+                </div>
+
+                @foreach (var tab in tabs)
+                {
+                    <div class="@(_activeTabId == tab.Id ? "fd-node-grid" : "fd-tab-hidden")">
+                        @foreach (var child in tab.Children.OrderBy(c => c.Order))
+                        {
+                            <DesignerNode Container="@child"
+                                          ActiveFragmentId="@ActiveFragmentId"
+                                          SelectedContainerId="@SelectedContainerId"
+                                          FragmentNames="@FragmentNames"
+                                          SiblingList="@tab.Children"
+                                          OnAssignFragment="OnAssignFragment"
+                                          OnSelectContainer="OnSelectContainer"
+                                          OnDeleteContainer="OnDeleteContainer"
+                                          OnAddChild="OnAddChild"
+                                          OnReordered="OnReordered" />
+                        }
+                    </div>
+                }
+                break;
+            }
+
+            // ── TAB PAGE ──────────────────────────────────────────────────────
+            case ContainerType.TabPage:
+            {
+                <div class="fd-node-grid">
+                    @foreach (var child in Container.Children.OrderBy(c => c.Order))
+                    {
+                        <DesignerNode Container="@child"
+                                      ActiveFragmentId="@ActiveFragmentId"
+                                      SelectedContainerId="@SelectedContainerId"
+                                      FragmentNames="@FragmentNames"
+                                      SiblingList="@Container.Children"
+                                      OnAssignFragment="OnAssignFragment"
+                                      OnSelectContainer="OnSelectContainer"
+                                      OnDeleteContainer="OnDeleteContainer"
+                                      OnAddChild="OnAddChild"
+                                      OnReordered="OnReordered" />
+                    }
+                </div>
+                break;
+            }
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LayoutNode?               Container           { get; set; }
+    [Parameter]                 public string?                   ActiveFragmentId    { get; set; }
+    [Parameter]                 public string?                   SelectedContainerId { get; set; }
+    [Parameter]                 public Dictionary<string,string> FragmentNames       { get; set; } = new();
+    [Parameter]                 public List<LayoutNode>?         SiblingList         { get; set; }
+
+    [Parameter] public EventCallback<string>                 OnAssignFragment  { get; set; }
+    [Parameter] public EventCallback<string>                 OnSelectContainer { get; set; }
+    [Parameter] public EventCallback<string>                 OnDeleteContainer { get; set; }
+    [Parameter] public EventCallback<(string,ContainerType)> OnAddChild        { get; set; }
+    [Parameter] public EventCallback                         OnReordered       { get; set; }
+
+    private bool   IsSelected   => Container?.Id == SelectedContainerId;
+    private string _activeTabId = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        if (Container?.Type == ContainerType.TabControl && string.IsNullOrEmpty(_activeTabId))
+        {
+            var first = Container.Children
+                .Where(c => c.Type == ContainerType.TabPage)
+                .OrderBy(c => c.Order)
+                .FirstOrDefault();
+            if (first is not null) _activeTabId = first.Id;
+        }
+    }
+
+    // ── Reorder ───────────────────────────────────────────────────────────────
+
+    private async Task MoveUp()
+    {
+        if (SiblingList is null || Container is null) return;
+        var idx = SiblingList.IndexOf(Container);
+        if (idx <= 0) return;
+        SiblingList.RemoveAt(idx);
+        SiblingList.Insert(idx - 1, Container);
+        Resequence(SiblingList);
+        await OnReordered.InvokeAsync();
+    }
+
+    private async Task MoveDown()
+    {
+        if (SiblingList is null || Container is null) return;
+        var idx = SiblingList.IndexOf(Container);
+        if (idx < 0 || idx >= SiblingList.Count - 1) return;
+        SiblingList.RemoveAt(idx);
+        SiblingList.Insert(idx + 1, Container);
+        Resequence(SiblingList);
+        await OnReordered.InvokeAsync();
+    }
+
+    private static void Resequence(List<LayoutNode> list)
+    {
+        for (int i = 0; i < list.Count; i++) list[i].Order = i;
+    }
+
+    // ── Click handlers ────────────────────────────────────────────────────────
+
+    private void HandleClick()
+    {
+        if (Container is not null)
+            OnSelectContainer.InvokeAsync(Container.Id);
+    }
+
+    private void HandleAreaClick()
+    {
+        if (ActiveFragmentId is not null && Container?.Area is not null)
+            OnAssignFragment.InvokeAsync(Container.Area.Id);
+        else
+            HandleClick();
+    }
+
+    private void UnassignFragment(LayoutArea area)
+    {
+        area.AssignedFragmentId = null;
+    }
+
+    private string GetFragmentName(string fragmentId) =>
+        FragmentNames.TryGetValue(fragmentId, out var name)
+            ? name
+            : $"⚠ Fragment missing ({(fragmentId.Length > 8 ? fragmentId[..8] + "…" : fragmentId)})";
+}

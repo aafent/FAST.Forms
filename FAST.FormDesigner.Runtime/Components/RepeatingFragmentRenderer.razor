@@ -1,0 +1,226 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@inject FormStateContainer State
+@implements IDisposable
+
+@if (_fragment is null) { return; }
+
+<div class="fd-repeating-root">
+
+    @* ── View mode toggle + row count info ── *@
+    <div class="fd-repeating-toolbar">
+        <div class="fd-repeating-info">
+            <span class="fd-repeating-badge">↕ Repeating</span>
+            <span class="fd-repeating-count">@_rowCount row@(_rowCount == 1 ? "" : "s")</span>
+        </div>
+        <div class="fd-repeating-view-toggle">
+            <button class="fd-repeating-view-btn @(_viewMode == RepeatingViewMode.Grid ? "active" : "")"
+                    title="Grid view" @onclick="() => SetViewMode(RepeatingViewMode.Grid)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+                    <rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>
+                </svg>
+                Grid
+            </button>
+            <button class="fd-repeating-view-btn @(_viewMode == RepeatingViewMode.Card ? "active" : "")"
+                    title="Card view" @onclick="() => SetViewMode(RepeatingViewMode.Card)">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="2" y="3" width="20" height="5" rx="1"/>
+                    <rect x="2" y="10" width="20" height="5" rx="1"/>
+                    <rect x="2" y="17" width="20" height="5" rx="1"/>
+                </svg>
+                Card
+            </button>
+        </div>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════════════
+       GRID MODE
+    ══════════════════════════════════════════════════════════════════════ *@
+    @if (_viewMode == RepeatingViewMode.Grid)
+    {
+        <div class="fd-repeating-grid-wrapper">
+            <table class="fd-repeating-table">
+                <thead>
+                    <tr class="fd-repeating-header-row">
+                        <th class="fd-repeating-th fd-repeating-th-num">#</th>
+                        @foreach (var field in VisibleFields)
+                        {
+                            <th class="fd-repeating-th" style="min-width: @(ColWidth(field))px">
+                                @field.Label
+                                @if (field.ValidationRules.Any(r => r.Type == ValidationRuleType.Required))
+                                {
+                                    <span class="fd-required">*</span>
+                                }
+                            </th>
+                        }
+                        <th class="fd-repeating-th fd-repeating-th-actions"></th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @for (int i = 0; i < _rowCount; i++)
+                    {
+                        var rowIdx = i;
+                        <tr class="fd-repeating-row @(rowIdx % 2 == 0 ? "fd-repeating-row-even" : "")">
+                            <td class="fd-repeating-td fd-repeating-td-num">@(rowIdx + 1)</td>
+                            @foreach (var field in VisibleFields)
+                            {
+                                <td class="fd-repeating-td">
+                                    <RepeatingFieldRenderer Field="@field"
+                                                            FragmentId="@_instanceKey"
+                                                            RowIndex="@rowIdx"
+                                                            OnFieldChanging="OnFieldChanging" />
+                                </td>
+                            }
+                            <td class="fd-repeating-td fd-repeating-td-actions">
+                                <button class="fd-repeating-delete-btn"
+                                        title="Remove row"
+                                        disabled="@(_rowCount <= _fragment.MinRows)"
+                                        @onclick="() => RemoveRow(rowIdx)">✕</button>
+                            </td>
+                        </tr>
+                    }
+                    @if (_rowCount == 0)
+                    {
+                        <tr>
+                            <td colspan="@(VisibleFields.Count() + 2)" class="fd-repeating-empty-row">
+                                No rows yet. Click "+ Add Row" to begin.
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+
+    @* ══════════════════════════════════════════════════════════════════════
+       CARD MODE
+    ══════════════════════════════════════════════════════════════════════ *@
+    @if (_viewMode == RepeatingViewMode.Card)
+    {
+        <div class="fd-repeating-cards">
+            @for (int i = 0; i < _rowCount; i++)
+            {
+                var rowIdx = i;
+                <div class="fd-repeating-card">
+                    <div class="fd-repeating-card-header">
+                        <span class="fd-repeating-card-num">Row @(rowIdx + 1)</span>
+                        <button class="fd-repeating-delete-btn"
+                                title="Remove row"
+                                disabled="@(_rowCount <= _fragment.MinRows)"
+                                @onclick="() => RemoveRow(rowIdx)">✕</button>
+                    </div>
+                    <div class="fd-fields-grid">
+                        @foreach (var field in VisibleFields)
+                        {
+                            <div class="fd-field-wrapper fd-col-@((int)field.ColumnSpan)">
+                                <label class="fd-prop-label">
+                                    @field.Label
+                                    @if (field.ValidationRules.Any(r => r.Type == ValidationRuleType.Required))
+                                    {
+                                        <span class="fd-required"> *</span>
+                                    }
+                                </label>
+                                <RepeatingFieldRenderer Field="@field"
+                                                        FragmentId="@_fragment.Id"
+                                                        RowIndex="@rowIdx"
+                                                        OnFieldChanging="OnFieldChanging" />
+                                @if (!string.IsNullOrWhiteSpace(field.HintText))
+                                {
+                                    <div class="fd-field-hint">@field.HintText</div>
+                                }
+                            </div>
+                        }
+                    </div>
+                </div>
+            }
+            @if (_rowCount == 0)
+            {
+                <div class="fd-repeating-empty-cards">
+                    No rows yet. Click "+ Add Row" to begin.
+                </div>
+            }
+        </div>
+    }
+
+    @* ── Add Row button ── *@
+    <div class="fd-repeating-footer">
+        <button class="fd-btn fd-btn-secondary fd-btn-sm fd-repeating-add-btn"
+                @onclick="AddRow">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"/>
+                <line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Row
+        </button>
+    </div>
+
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FormFragment? Fragment    { get; set; }
+    [Parameter]                  public string?       InstanceKey { get; set; }
+
+    /// <summary>Field change interceptor — passed down from FastForm.</summary>
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private FormFragment?    _fragment;
+    private string _instanceKey => string.IsNullOrWhiteSpace(InstanceKey)
+        ? (_fragment?.Id ?? string.Empty)
+        : InstanceKey;
+    private RepeatingViewMode _viewMode = RepeatingViewMode.Grid;
+    private int               _rowCount;
+
+    private IEnumerable<FieldDefinition> VisibleFields =>
+        _fragment?.Fields.Where(f => f.IsVisible).OrderBy(f => f.Order)
+        ?? Enumerable.Empty<FieldDefinition>();
+
+    // ColumnSpan → approximate pixel width
+    private static int ColWidth(FieldDefinition field) => (int)field.ColumnSpan * 80;
+
+    protected override void OnInitialized()
+    {
+        _fragment = Fragment;
+        if (_fragment is not null)
+        {
+            _viewMode = _fragment.ViewMode;
+            State.InitialiseInstanceRows(_instanceKey, _fragment.MinRows);
+            _rowCount = State.GetInstanceRowCount(_instanceKey);
+        }
+        State.OnFieldChanged += HandleStateChange;
+    }
+
+    public void Dispose() => State.OnFieldChanged -= HandleStateChange;
+
+    private void HandleStateChange(string key)
+    {
+        if (_fragment is not null && key == $"{_instanceKey}:__rowcount")
+        {
+            _rowCount = State.GetInstanceRowCount(_instanceKey);
+            InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void AddRow()
+    {
+        if (_fragment is null) return;
+        State.AddInstanceRow(_instanceKey);
+        _rowCount = State.GetInstanceRowCount(_instanceKey);
+        StateHasChanged();
+    }
+
+    private void RemoveRow(int rowIndex)
+    {
+        if (_fragment is null) return;
+        if (_rowCount <= _fragment.MinRows) return;
+        State.RemoveInstanceRow(_instanceKey, rowIndex);
+        _rowCount = State.GetInstanceRowCount(_instanceKey);
+        StateHasChanged();
+    }
+
+    private void SetViewMode(RepeatingViewMode mode)
+    {
+        _viewMode = mode;
+        StateHasChanged();
+    }
+}

@@ -1,0 +1,103 @@
+@using FAST.FormDesigner.Runtime.Models
+
+@* Right panel in Editor A: properties of the selected LayoutNode *@
+
+@if (Container is null) { return; }
+
+<div class="fd-right-panel-inner">
+
+    <div class="fd-panel-header">
+        <span class="fd-panel-title">Container Properties</span>
+        <span class="fd-field-type-badge">@Container.Type</span>
+    </div>
+
+    <div class="fd-panel-body">
+
+        <div class="fd-prop-group">
+            <label class="fd-prop-label">Label</label>
+            <input class="fd-prop-input" value="@Container.Label"
+                   @oninput="e => Mutate(() => Container.Label = e.Value?.ToString() ?? string.Empty)"
+                   placeholder="Container label"/>
+        </div>
+
+        <div class="fd-prop-group">
+            <label class="fd-prop-label">Column Span</label>
+            <select class="fd-prop-select"
+                    value="@((int)Container.ColumnSpan)"
+                    @onchange="OnColumnSpanChanged">
+                <option value="1">1 — 25%</option>
+                <option value="2">2 — 50%</option>
+                <option value="3">3 — 75%</option>
+                <option value="4">4 — 100%</option>
+            </select>
+        </div>
+
+        <div class="fd-prop-group">
+            <label class="fd-prop-label">Order</label>
+            <input class="fd-prop-input" type="number" value="@Container.Order"
+                   @oninput="e => Mutate(() => { if(int.TryParse(e.Value?.ToString(), out var o)) Container.Order = o; })"/>
+        </div>
+
+        @* Area-specific: Fragment Assignment *@
+        @if (Container.Type == ContainerType.Area && Container.Area is not null)
+        {
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">
+                    Data Key
+                    <span style="font-size:10px; color:#94a3b8; font-weight:400; margin-left:4px;">(optional)</span>
+                </label>
+                <input class="fd-prop-input"
+                       value="@Container.Area.DataKey"
+                       @oninput="e => { Container.Area.DataKey = e.Value?.ToString(); OnChanged.InvokeAsync(Container); }"
+                       placeholder="e.g. homeAddress, contacts…" />
+                <div class="fd-field-hint">
+                    Sets the key in the Data Document.
+                    Empty = flat fields at root.
+                    Required for repeating fragments.
+                </div>
+            </div>
+            <div class="fd-prop-divider"></div>
+            <div class="fd-prop-divider"></div>
+            <div class="fd-prop-section-title">Fragment Assignment</div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Assigned Fragment</label>
+                <select class="fd-prop-select"
+                        value="@(Container.Area.AssignedFragmentId ?? "")"
+                        @onchange="e => Mutate(() => Container.Area.AssignedFragmentId = string.IsNullOrEmpty(e.Value?.ToString()) ? null : e.Value?.ToString())">
+                    <option value="">— None (placeholder) —</option>
+                    @foreach (var f in AllFragments)
+                    {
+                        <option value="@f.Id">@f.Name (@f.FieldCount fields)</option>
+                    }
+                </select>
+                <div class="fd-field-hint">
+                    You can also assign by clicking a Fragment in the library panel,
+                    then clicking this area on the canvas.
+                </div>
+            </div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Placeholder Hint</label>
+                <input class="fd-prop-input" value="@Container.Area.PlaceholderHint"
+                       @oninput="e => Mutate(() => Container.Area.PlaceholderHint = e.Value?.ToString() ?? string.Empty)"
+                       placeholder="Text shown when no fragment is assigned"/>
+            </div>
+        }
+
+    </div>
+</div>
+
+@code {
+    [Parameter, EditorRequired] public LayoutNode? Container   { get; set; }
+    [Parameter] public List<FragmentSummary>            AllFragments { get; set; } = new();
+    [Parameter] public EventCallback                    OnChanged    { get; set; }
+
+    private void Mutate(Action action) { action(); OnChanged.InvokeAsync(); }
+
+    private void OnColumnSpanChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+            Mutate(() => Container!.ColumnSpan = (ColumnSpan)v);
+    }
+}

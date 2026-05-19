@@ -1,0 +1,18 @@
+@page "/form/{LayoutId}"
+@inject IJSRuntime JS
+
+<PageTitle>Form — FAST.FormDesigner</PageTitle>
+
+<FormRenderer LayoutId="@LayoutId" OnSubmit="HandleSubmit" />
+
+@code {
+    [Parameter] public string LayoutId { get; set; } = string.Empty;
+
+    private async Task HandleSubmit(Dictionary<string, object?> payload)
+    {
+        // In production: post payload to your API here
+        var json = System.Text.Json.JsonSerializer.Serialize(payload,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("console.log", "Form submitted:", json);
+    }
+}

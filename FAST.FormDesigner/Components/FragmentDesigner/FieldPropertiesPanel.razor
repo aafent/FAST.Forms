@@ -1,0 +1,367 @@
+@using FAST.FormDesigner.Runtime.Models
+
+@if (Field is null) { return; }
+
+<div class="fd-right-panel-inner">
+
+    <div class="fd-panel-header">
+        <span class="fd-panel-title">Field Properties</span>
+        <span class="fd-field-type-badge">@Field.Type</span>
+    </div>
+
+    <div class="fd-modal-tabs">
+        <button class="fd-modal-tab @TabClass(0)" @onclick="() => _tab = 0">General</button>
+        <button class="fd-modal-tab @TabClass(1)" @onclick="() => _tab = 1">Validation</button>
+        @if (Field.Type == FieldType.Grid)
+        {
+            <button class="fd-modal-tab @TabClass(2)" @onclick="() => _tab = 2">Columns</button>
+        }
+    </div>
+
+    @* ── TAB 0: GENERAL ── *@
+    @if (_tab == 0)
+    {
+        <div class="fd-panel-body">
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Label <span class="fd-required">*</span></label>
+                <input class="fd-prop-input" value="@Field.Label"
+                       @oninput="e => Mutate(() => Field.Label = e.Value?.ToString() ?? string.Empty)"
+                       placeholder="Display label" />
+            </div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Field Key <span class="fd-required">*</span></label>
+                <input class="fd-prop-input" value="@Field.Key"
+                       @oninput="e => Mutate(() => Field.Key = e.Value?.ToString() ?? string.Empty)"
+                       placeholder="camelCaseKey" />
+                <div class="fd-field-hint">Used in the payload as {fragmentId}:{key}</div>
+            </div>
+
+            <div class="fd-prop-row">
+                <div class="fd-prop-group fd-prop-half">
+                    <label class="fd-prop-label">Column Span</label>
+                    <select class="fd-prop-select" value="@((int)Field.ColumnSpan)"
+                            @onchange="OnColumnSpanChanged">
+                        <option value="1">1 (25%)</option>
+                        <option value="2">2 (50%)</option>
+                        <option value="3">3 (75%)</option>
+                        <option value="4">4 (100%)</option>
+                    </select>
+                </div>
+                <div class="fd-prop-group fd-prop-half">
+                    <label class="fd-prop-label">Order</label>
+                    <input class="fd-prop-input" type="number" value="@Field.Order"
+                           @oninput="OnOrderChanged" />
+                </div>
+            </div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Placeholder</label>
+                <input class="fd-prop-input" value="@Field.Placeholder"
+                       @oninput="e => Mutate(() => Field.Placeholder = e.Value?.ToString() ?? string.Empty)"
+                       placeholder="Placeholder shown inside the field" />
+            </div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Hint / Guideline Text</label>
+                <textarea class="fd-prop-input fd-textarea" rows="2"
+                          @oninput="e => Mutate(() => Field.HintText = e.Value?.ToString() ?? string.Empty)">@Field.HintText</textarea>
+                <div class="fd-field-hint">Displayed below the field as guidance for the user.</div>
+            </div>
+
+            <div class="fd-prop-group">
+                <label class="fd-prop-label">Default Value</label>
+                <input class="fd-prop-input" value="@Field.DefaultValue"
+                       @oninput="e => Mutate(() => Field.DefaultValue = e.Value?.ToString())" />
+            </div>
+
+            @if (Field.Type == FieldType.ListOfValues)
+            {
+                <div class="fd-prop-group">
+                    <label class="fd-prop-label">Options (pipe-separated)</label>
+                    <input class="fd-prop-input" value="@Field.ListOptions"
+                           @oninput="e => Mutate(() => Field.ListOptions = e.Value?.ToString())"
+                           placeholder="Option A|Option B|Option C" />
+                    <div class="fd-field-hint">Separate each option with |</div>
+                </div>
+            }
+
+            @if (Field.Category == FieldCategory.Advanced)
+            {
+                <div class="fd-prop-group">
+                    <label class="fd-prop-label">Meta Service Key</label>
+                    <input class="fd-prop-input" value="@Field.MetaServiceKey"
+                           @oninput="e => Mutate(() => Field.MetaServiceKey = e.Value?.ToString())"
+                           placeholder="e.g. CustomerLookup" />
+                    <div class="fd-field-hint">Matches the IMetaFieldService.ServiceKey implementation.</div>
+                </div>
+            }
+
+            <div class="fd-prop-row">
+                <label class="fd-checkbox-label fd-prop-half">
+                    <input type="checkbox" checked="@Field.IsReadOnly" @onchange="OnIsReadOnlyChanged" />
+                    Read Only
+                </label>
+                <label class="fd-checkbox-label fd-prop-half">
+                    <input type="checkbox" checked="@Field.IsVisible" @onchange="OnIsVisibleChanged" />
+                    Visible
+                </label>
+            </div>
+
+        </div>
+    }
+
+    @* ── TAB 1: VALIDATION RULE BUILDER ── *@
+    @if (_tab == 1)
+    {
+        <div class="fd-panel-body">
+
+            <div class="fd-vars-toolbar">
+                <button class="fd-btn fd-btn-primary fd-btn-sm" @onclick="AddRule">+ Add Rule</button>
+            </div>
+
+            @if (!Field.ValidationRules.Any())
+            {
+                <div class="fd-vars-empty">No validation rules. Click Add Rule to begin.</div>
+            }
+            else
+            {
+                <div class="fd-validation-rules-list">
+                    @for (int i = 0; i < Field.ValidationRules.Count; i++)
+                    {
+                        var idx  = i;
+                        var rule = Field.ValidationRules[idx];
+
+                        <div class="fd-rule-card"
+                             draggable="true"
+                             @ondragstart="() => _dragRuleIdx = idx"
+                             @ondragover:preventDefault="true"
+                             @ondrop="() => DropRule(idx)">
+
+                            <div class="fd-rule-card-header">
+                                <span class="fd-drag-handle">⠿</span>
+                                <select class="fd-var-select fd-rule-type-select"
+                                        value="@rule.Type.ToString()"
+                                        @onchange="e => OnRuleTypeChanged(idx, e)">
+                                    @foreach (var t in Enum.GetValues<ValidationRuleType>())
+                                    {
+                                        <option value="@t">@t</option>
+                                    }
+                                </select>
+                                <button class="fd-var-delete" @onclick="() => RemoveRule(idx)">✕</button>
+                            </div>
+
+                            @if (rule.Type is ValidationRuleType.MinLength
+                                          or ValidationRuleType.MaxLength
+                                          or ValidationRuleType.Min
+                                          or ValidationRuleType.Max
+                                          or ValidationRuleType.Regex)
+                            {
+                                <div class="fd-prop-group">
+                                    <label class="fd-prop-label">Value</label>
+                                    <input class="fd-var-input" value="@rule.Value"
+                                           placeholder="@GetRuleValuePlaceholder(rule.Type)"
+                                           @oninput="e => Mutate(() => Field.ValidationRules[idx].Value = e.Value?.ToString())" />
+                                </div>
+                            }
+
+                            @if (rule.Type == ValidationRuleType.CrossFragment)
+                            {
+                                <div class="fd-prop-group">
+                                    <label class="fd-prop-label">Ref Field (fragmentId:fieldKey)</label>
+                                    <input class="fd-var-input" value="@rule.CrossFragmentRef"
+                                           placeholder="fragment-masterdata:category"
+                                           @oninput="e => Mutate(() => Field.ValidationRules[idx].CrossFragmentRef = e.Value?.ToString())" />
+                                </div>
+                                <div class="fd-prop-group">
+                                    <label class="fd-prop-label">Condition</label>
+                                    <select class="fd-var-select"
+                                            value="@rule.CrossFragmentCondition"
+                                            @onchange="e => Mutate(() => Field.ValidationRules[idx].CrossFragmentCondition = e.Value?.ToString())">
+                                        <option value="NotEmpty">NotEmpty — other field must have a value</option>
+                                        <option value="Equals:">Equals:{value}</option>
+                                        <option value="RequiredWhen:">RequiredWhen:{value}</option>
+                                        <option value="GreaterThan:">GreaterThan:{number}</option>
+                                        <option value="LessThanOther">LessThanOther</option>
+                                    </select>
+                                </div>
+                            }
+
+                            <div class="fd-prop-group">
+                                <label class="fd-prop-label">Error Message</label>
+                                <input class="fd-var-input" value="@rule.Message"
+                                       placeholder="Leave blank for default message"
+                                       @oninput="e => Mutate(() => Field.ValidationRules[idx].Message = e.Value?.ToString() ?? string.Empty)" />
+                            </div>
+
+                        </div>
+                    }
+                </div>
+            }
+
+        </div>
+    }
+
+    @* ── TAB 2: GRID COLUMNS ── *@
+    @if (_tab == 2 && Field.Type == FieldType.Grid)
+    {
+        <div class="fd-panel-body">
+
+            <div class="fd-vars-toolbar">
+                <button class="fd-btn fd-btn-primary fd-btn-sm" @onclick="AddGridColumn">+ Add Column</button>
+            </div>
+
+            <div class="fd-vars-grid">
+                <div class="fd-vars-header">
+                    <div class="fd-vars-col" style="flex:2">Header</div>
+                    <div class="fd-vars-col" style="flex:1">Key</div>
+                    <div class="fd-vars-col" style="flex:1">Type</div>
+                    <div class="fd-vars-col fd-vars-col-actions"></div>
+                </div>
+
+                @{ var cols = Field.GridColumns ??= new(); }
+                @for (int i = 0; i < cols.Count; i++)
+                {
+                    var idx = i;
+                    var col = cols[idx];
+                    <div class="fd-vars-row">
+                        <div class="fd-vars-col" style="flex:2">
+                            <input class="fd-var-input" value="@col.Header"
+                                   @oninput="e => Mutate(() => cols[idx].Header = e.Value?.ToString() ?? string.Empty)" />
+                        </div>
+                        <div class="fd-vars-col" style="flex:1">
+                            <input class="fd-var-input" value="@col.Key"
+                                   @oninput="e => Mutate(() => cols[idx].Key = e.Value?.ToString() ?? string.Empty)" />
+                        </div>
+                        <div class="fd-vars-col" style="flex:1">
+                            <select class="fd-var-select" value="@col.Type.ToString()"
+                                    @onchange="e => OnGridColTypeChanged(idx, e)">
+                                <option value="Text">Text</option>
+                                <option value="Number">Number</option>
+                                <option value="Date">Date</option>
+                                <option value="Checkbox">Checkbox</option>
+                                <option value="ListOfValues">List</option>
+                            </select>
+                        </div>
+                        <div class="fd-vars-col fd-vars-col-actions">
+                            <button class="fd-var-delete" @onclick="() => RemoveGridCol(cols, idx)">✕</button>
+                        </div>
+                    </div>
+                }
+
+                @if (!cols.Any())
+                {
+                    <div class="fd-vars-empty">No columns defined.</div>
+                }
+            </div>
+
+        </div>
+    }
+
+</div>
+
+@code {
+    [Parameter, EditorRequired] public FieldDefinition? Field { get; set; }
+    [Parameter] public List<FragmentSummary>            AllFragments { get; set; } = new();
+    [Parameter] public EventCallback                    OnChanged    { get; set; }
+
+    private int _tab         = 0;
+    private int _dragRuleIdx = -1;
+
+    private string TabClass(int t) => _tab == t ? "active" : string.Empty;
+
+    private void Mutate(Action action) { action(); OnChanged.InvokeAsync(); }
+
+    // ── General tab handlers ──────────────────────────────────────────────────
+
+    private void OnColumnSpanChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+            Mutate(() => Field!.ColumnSpan = (ColumnSpan)v);
+    }
+
+    private void OnOrderChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var v))
+            Mutate(() => Field!.Order = v);
+    }
+
+    private void OnIsReadOnlyChanged(ChangeEventArgs e)
+    {
+        var val = e.Value is bool b ? b : e.Value?.ToString() == "true";
+        Mutate(() => Field!.IsReadOnly = val);
+    }
+
+    private void OnIsVisibleChanged(ChangeEventArgs e)
+    {
+        var val = e.Value is bool b ? b : e.Value?.ToString() == "true";
+        Mutate(() => Field!.IsVisible = val);
+    }
+
+    // ── Validation tab handlers ───────────────────────────────────────────────
+
+    private void OnRuleTypeChanged(int idx, ChangeEventArgs e)
+    {
+        if (Enum.TryParse<ValidationRuleType>(e.Value?.ToString(), out var rt))
+            Mutate(() => Field!.ValidationRules[idx].Type = rt);
+    }
+
+    private void AddRule()
+    {
+        Field!.ValidationRules.Add(new ValidationRule { Type = ValidationRuleType.Required });
+        Mutate(() => { });
+    }
+
+    private void RemoveRule(int idx)
+    {
+        if (idx >= 0 && idx < Field!.ValidationRules.Count)
+        { Field.ValidationRules.RemoveAt(idx); Mutate(() => { }); }
+    }
+
+    private void DropRule(int targetIdx)
+    {
+        if (_dragRuleIdx < 0 || _dragRuleIdx == targetIdx) { _dragRuleIdx = -1; return; }
+        var item = Field!.ValidationRules[_dragRuleIdx];
+        Field.ValidationRules.RemoveAt(_dragRuleIdx);
+        Field.ValidationRules.Insert(targetIdx, item);
+        _dragRuleIdx = -1;
+        Mutate(() => { });
+    }
+
+    // ── Grid columns tab handlers ─────────────────────────────────────────────
+
+    private void OnGridColTypeChanged(int idx, ChangeEventArgs e)
+    {
+        if (Enum.TryParse<FieldType>(e.Value?.ToString(), out var ft))
+            Mutate(() => Field!.GridColumns![idx].Type = ft);
+    }
+
+    private void AddGridColumn()
+    {
+        Field!.GridColumns ??= new();
+        Field.GridColumns.Add(new GridColumnDefinition
+        {
+            Key    = $"col{Field.GridColumns.Count + 1}",
+            Header = $"Column {Field.GridColumns.Count + 1}",
+            Width  = 150
+        });
+        Mutate(() => { });
+    }
+
+    private void RemoveGridCol(List<GridColumnDefinition> cols, int idx)
+    {
+        cols.RemoveAt(idx);
+        Mutate(() => { });
+    }
+
+    private static string GetRuleValuePlaceholder(ValidationRuleType type) => type switch
+    {
+        ValidationRuleType.MinLength => "Min character count, e.g. 3",
+        ValidationRuleType.MaxLength => "Max character count, e.g. 100",
+        ValidationRuleType.Min       => "Min numeric value, e.g. 0",
+        ValidationRuleType.Max       => "Max numeric value, e.g. 999999",
+        ValidationRuleType.Regex     => "Regex pattern, e.g. ^\\d{5}$",
+        _                            => string.Empty
+    };
+}

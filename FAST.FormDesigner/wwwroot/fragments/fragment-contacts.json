@@ -1,0 +1,64 @@
+{
+  "id": "fragment-contacts",
+  "name": "Fragment_Contacts",
+  "description": "Contact persons grid",
+  "category": "Contacts",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "fields": [
+    {
+      "id": "f-contactsgrid",
+      "key": "contacts",
+      "label": "Contact Persons",
+      "type": "Grid",
+      "category": "Standard",
+      "order": 0,
+      "columnSpan": 4,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "",
+      "hintText": "Add all relevant contact persons for this customer",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": [
+        {
+          "key": "contactName",
+          "header": "Name",
+          "type": "Text",
+          "width": 200,
+          "isReadOnly": false
+        },
+        {
+          "key": "contactRole",
+          "header": "Role",
+          "type": "Text",
+          "width": 140,
+          "isReadOnly": false
+        },
+        {
+          "key": "contactPhone",
+          "header": "Phone",
+          "type": "Text",
+          "width": 140,
+          "isReadOnly": false
+        },
+        {
+          "key": "contactEmail",
+          "header": "Email",
+          "type": "Text",
+          "width": 200,
+          "isReadOnly": false
+        },
+        {
+          "key": "isPrimary",
+          "header": "Primary",
+          "type": "Checkbox",
+          "width": 70,
+          "isReadOnly": false
+        }
+      ],
+      "validationRules": []
+    }
+  ]
+}

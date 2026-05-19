@@ -1,0 +1,10 @@
+[
+  {
+    "id": "layout-customer-management",
+    "name": "Customer Management",
+    "description": "Main customer master form with address, contacts and sales policy",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z",
+    "containers": []
+  }
+]

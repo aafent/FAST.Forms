@@ -1,0 +1,110 @@
+{
+  "id": "fragment-address",
+  "name": "Fragment_Address",
+  "description": "Physical and postal address details",
+  "category": "Address",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "fields": [
+    {
+      "id": "f-street",
+      "key": "street",
+      "label": "Street & Number",
+      "type": "Text",
+      "category": "Standard",
+      "order": 0,
+      "columnSpan": 4,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "e.g. Ermou 12",
+      "hintText": "",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-3",
+          "type": "Required",
+          "value": null,
+          "message": "Street is required."
+        }
+      ]
+    },
+    {
+      "id": "f-city",
+      "key": "city",
+      "label": "City",
+      "type": "Text",
+      "category": "Standard",
+      "order": 1,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "City",
+      "hintText": "",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-4",
+          "type": "Required",
+          "value": null,
+          "message": "City is required."
+        }
+      ]
+    },
+    {
+      "id": "f-postalcode",
+      "key": "postalCode",
+      "label": "Postal Code",
+      "type": "Text",
+      "category": "Standard",
+      "order": 2,
+      "columnSpan": 1,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "e.g. 10557",
+      "hintText": "",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-5",
+          "type": "Regex",
+          "value": "^\\d{5}$",
+          "message": "Postal code must be 5 digits."
+        }
+      ]
+    },
+    {
+      "id": "f-country",
+      "key": "country",
+      "label": "Country",
+      "type": "ListOfValues",
+      "category": "Standard",
+      "order": 3,
+      "columnSpan": 1,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "",
+      "hintText": "",
+      "defaultValue": "Greece",
+      "listOptions": "Greece|Cyprus|Bulgaria|Albania|North Macedonia",
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-6",
+          "type": "Required",
+          "value": null,
+          "message": "Country is required."
+        }
+      ]
+    }
+  ]
+}

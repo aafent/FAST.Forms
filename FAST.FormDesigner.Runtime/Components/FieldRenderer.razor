@@ -1,0 +1,740 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@using Microsoft.AspNetCore.Components.Rendering
+@inject FormStateContainer State
+@inject MetaFieldResolver MetaResolver
+@inject IJSRuntime JS
+@implements IDisposable
+
+@RenderField(_field)
+
+@code {
+    [Parameter, EditorRequired] public FieldDefinition Field
+    {
+        get => _field;
+        set { _field = value; }
+    }
+    [Parameter, EditorRequired] public string FragmentId { get; set; } = string.Empty;
+
+    /// <summary>The DataKey from the area — included in FieldChangingArgs for context.</summary>
+    [Parameter] public string? DataKey { get; set; }
+
+    /// <summary>Field change interceptor from FastForm. Null = accept all.</summary>
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private FieldDefinition _field = new();
+
+    // Meta-field state
+    private string          _searchQuery     = string.Empty;
+    private string          _displayValue    = string.Empty;
+    private bool            _showDropdown    = false;
+    private bool            _isLoadingMeta   = false;
+    private List<MetaFieldOption> _metaOptions = new();
+    private CancellationTokenSource? _metaCts;
+
+    // Grid state
+    private List<GridRow> _gridRows = new();
+
+    // Interceptor state
+    private bool    _intercepting     = false;   // true while async interceptor runs
+    private string? _interceptorError = null;    // non-null = Error result, shown on field
+    private bool    _lockFocus        = false;   // true = LockFocus reject mode active
+    private ElementReference _inputRef;          // used for LockFocus
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override void OnInitialized()
+    {
+        // Load existing value from state (e.g. if re-rendering an existing record)
+        var existing = State.GetInstanceValue(FragmentId, _field.Key);
+        if (existing is List<GridRow> gridData)
+            _gridRows = gridData;
+        else if (existing is string s)
+            _displayValue = s;
+
+        State.OnFieldChanged += HandleExternalFieldChange;
+    }
+
+    public void Dispose()
+    {
+        State.OnFieldChanged -= HandleExternalFieldChange;
+        _metaCts?.Cancel();
+        _metaCts?.Dispose();
+    }
+
+    private void HandleExternalFieldChange(string key)
+    {
+        if (key.StartsWith(FragmentId + ":"))
+            InvokeAsync(StateHasChanged);
+    }
+
+    // ── Value helpers ─────────────────────────────────────────────────────────
+
+    private object? GetValue()       => State.GetInstanceValue(FragmentId, _field.Key);
+    private string  GetStringValue() => GetValue()?.ToString() ?? _field.DefaultValue ?? string.Empty;
+
+    /// <summary>Commits value to state directly (no interceptor — programmatic only).</summary>
+    private void SetValue(object? value)
+    {
+        State.SetInstanceValue(FragmentId, _field.Key, value);
+        State.ClearErrors(FragmentId, _field.Key);
+    }
+
+    /// <summary>
+    /// Called on every user-initiated change. Runs the interceptor if set,
+    /// then applies Accept / Error / Reject logic.
+    /// </summary>
+    private async Task HandleUserChange(object? newValue)
+    {
+        if (_lockFocus)
+        {
+            // Field is locked — snap back and re-focus immediately
+            await RefocusAsync();
+            StateHasChanged();
+            return;
+        }
+
+        var oldValue = GetValue();
+
+        if (OnFieldChanging is null)
+        {
+            // No interceptor — accept immediately
+            SetValue(newValue);
+            return;
+        }
+
+        // Build args
+        var args = new FieldChangingArgs
+        {
+            InstanceKey = FragmentId,
+            DataKey     = DataKey,
+            FieldKey    = _field.Key,
+            RowIndex    = 0,
+            OldValue    = oldValue,
+            NewValue    = newValue
+        };
+
+        // Show spinner, disable field
+        _intercepting     = true;
+        _interceptorError = null;
+        StateHasChanged();
+
+        FieldChangingResult result;
+        try
+        {
+            result = await OnFieldChanging(args);
+        }
+        catch
+        {
+            result = FieldChangingResult.Accepted(); // fail-safe: accept on exception
+        }
+        finally
+        {
+            _intercepting = false;
+        }
+
+        switch (result.Result)
+        {
+            case FieldChangingResult.Outcome.Accepted:
+                SetValue(newValue);
+                _interceptorError = null;
+                _lockFocus        = false;
+                // No StateHasChanged — value is in state, no visual re-render needed
+                break;
+
+            case FieldChangingResult.Outcome.Error:
+                SetValue(newValue);
+                _interceptorError = result.ErrorMessage;
+                _lockFocus        = false;
+                StateHasChanged(); // need to show error message
+                break;
+
+            case FieldChangingResult.Outcome.Rejected:
+                _interceptorError = null;
+
+                var isLockCapable = _field.Type is
+                    FieldType.Text or FieldType.Number or FieldType.TextArea or
+                    FieldType.CurrencyInput or FieldType.CustomerLookup or
+                    FieldType.ProductSearch or FieldType.UserPicker or FieldType.AddressLookup;
+
+                if (result.RejectMode == RejectMode.LockFocus && isLockCapable)
+                {
+                    _lockFocus = true;
+                    StateHasChanged();
+                    await RefocusAsync();
+                    return;
+                }
+                else
+                {
+                    // SnapBack — re-render so input visually reverts to old value
+                    _lockFocus = false;
+                    StateHasChanged();
+                }
+                break;
+        }
+    }
+
+    private async Task RefocusAsync()
+    {
+        try { await JS.InvokeVoidAsync("focusElement", _inputRef); } catch { }
+    }
+
+    // ── CSS helpers ───────────────────────────────────────────────────────────
+
+    private List<FieldValidationError> Errors =>
+        State.GetErrors(FragmentId, _field.Key);
+
+    private bool HasError => Errors.Any() || _interceptorError is not null;
+
+    private string InputCss(string base_class)
+    {
+        var css = base_class;
+        if (HasError)        css += " fd-input-error";
+        if (_intercepting)   css += " fd-input-intercepting";
+        if (_lockFocus)      css += " fd-input-locked";
+        return css;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  RENDER TREE BUILDER  (main dispatch)
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private RenderFragment RenderField(FieldDefinition field) => __builder =>
+    {
+        // Field wrapper
+        __builder.OpenElement(0, "div");
+        __builder.AddAttribute(1, "class",
+            $"fd-field-wrapper fd-col-{(int)field.ColumnSpan}");
+
+        // Label
+        __builder.OpenElement(2, "label");
+        __builder.AddAttribute(3, "class", "fd-prop-label");
+        __builder.AddAttribute(4, "for",   $"field-{field.Id}");
+        __builder.AddContent(5, field.Label);
+
+        // Required asterisk
+        if (field.ValidationRules.Any(r => r.Type == ValidationRuleType.Required))
+        {
+            __builder.OpenElement(6, "span");
+            __builder.AddAttribute(7, "class", "fd-required");
+            __builder.AddContent(8, " *");
+            __builder.CloseElement();
+        }
+        __builder.CloseElement(); // label
+
+        // Interceptor spinner (shown while async call is in flight)
+        if (_intercepting)
+        {
+            __builder.OpenElement(9, "span");
+            __builder.AddAttribute(10, "class", "fd-spinner fd-spinner-sm fd-field-spinner");
+            __builder.CloseElement();
+        }
+
+        // Input — dispatched by type
+        switch (field.Type)
+        {
+            case FieldType.Text:
+                RenderTextInput(__builder, field);
+                break;
+            case FieldType.Number:
+                RenderNumberInput(__builder, field);
+                break;
+            case FieldType.Date:
+                RenderDateInput(__builder, field, "date");
+                break;
+            case FieldType.DateTime:
+                RenderDateInput(__builder, field, "datetime-local");
+                break;
+            case FieldType.Checkbox:
+                RenderCheckbox(__builder, field);
+                break;
+            case FieldType.ListOfValues:
+                RenderSelect(__builder, field);
+                break;
+            case FieldType.TextArea:
+                RenderTextArea(__builder, field);
+                break;
+            case FieldType.Grid:
+                RenderGrid(__builder, field);
+                break;
+            case FieldType.CustomerLookup:
+            case FieldType.ProductSearch:
+            case FieldType.UserPicker:
+            case FieldType.AddressLookup:
+                RenderMetaField(__builder, field);
+                break;
+            case FieldType.CurrencyInput:
+                RenderCurrencyInput(__builder, field);
+                break;
+            default:
+                RenderTextInput(__builder, field);
+                break;
+        }
+
+        // Hint text
+        if (!string.IsNullOrWhiteSpace(field.HintText))
+        {
+            __builder.OpenElement(20, "div");
+            __builder.AddAttribute(21, "class", "fd-field-hint");
+            __builder.AddContent(22, field.HintText);
+            __builder.CloseElement();
+        }
+
+        // Interceptor error message (red, distinct from validation errors)
+        if (_interceptorError is not null)
+        {
+            __builder.OpenElement(23, "div");
+            __builder.AddAttribute(24, "class", "fd-field-error fd-interceptor-error");
+            __builder.AddContent(25, _interceptorError);
+            __builder.CloseElement();
+        }
+
+        // Validation errors
+        foreach (var err in Errors)
+        {
+            __builder.OpenElement(26, "div");
+            __builder.AddAttribute(27, "class", "fd-field-error");
+            __builder.AddContent(28, err.Message);
+            __builder.CloseElement();
+        }
+
+        __builder.CloseElement(); // fd-field-wrapper
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  INDIVIDUAL FIELD RENDERERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void RenderTextInput(RenderTreeBuilder b, FieldDefinition field)
+    {
+        b.OpenElement(10, "input");
+        b.AddAttribute(11, "id",          $"field-{field.Id}");
+        b.AddAttribute(12, "class",       InputCss("fd-prop-input"));
+        b.AddAttribute(13, "type",        "text");
+        b.AddAttribute(14, "value",       GetStringValue());
+        b.AddAttribute(15, "placeholder", field.Placeholder);
+        b.AddAttribute(16, "readonly",    field.IsReadOnly || _intercepting);
+        b.AddAttribute(17, "onchange",    EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e => await HandleUserChange(e.Value?.ToString())));
+        b.AddElementReferenceCapture(18, r => _inputRef = r);
+        b.CloseElement();
+    }
+
+    private void RenderNumberInput(RenderTreeBuilder b, FieldDefinition field)
+    {
+        b.OpenElement(10, "input");
+        b.AddAttribute(11, "id",       $"field-{field.Id}");
+        b.AddAttribute(12, "class",    InputCss("fd-prop-input"));
+        b.AddAttribute(13, "type",     "number");
+        b.AddAttribute(14, "value",    GetStringValue());
+        b.AddAttribute(15, "step",     "any");
+        b.AddAttribute(16, "readonly", field.IsReadOnly || _intercepting);
+        b.AddAttribute(17, "onchange",  EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e =>
+            {
+                object? val = decimal.TryParse(e.Value?.ToString(), out var d)
+                    ? d : e.Value?.ToString();
+                await HandleUserChange(val);
+            }));
+        b.AddElementReferenceCapture(18, r => _inputRef = r);
+        b.CloseElement();
+    }
+
+    private void RenderDateInput(RenderTreeBuilder b, FieldDefinition field, string inputType)
+    {
+        b.OpenElement(10, "input");
+        b.AddAttribute(11, "id",       $"field-{field.Id}");
+        b.AddAttribute(12, "class",    InputCss("fd-prop-input"));
+        b.AddAttribute(13, "type",     inputType);
+        b.AddAttribute(14, "value",    GetStringValue());
+        b.AddAttribute(15, "readonly", field.IsReadOnly || _intercepting);
+        b.AddAttribute(16, "onchange",  EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e => await HandleUserChange(e.Value?.ToString())));
+        b.CloseElement();
+    }
+
+    private void RenderCheckbox(RenderTreeBuilder b, FieldDefinition field)
+    {
+        b.OpenElement(10, "label");
+        b.AddAttribute(11, "class", "fd-checkbox-label");
+
+        b.OpenElement(12, "input");
+        b.AddAttribute(13, "id",       $"field-{field.Id}");
+        b.AddAttribute(14, "type",     "checkbox");
+        b.AddAttribute(15, "checked",  GetValue() is true || GetStringValue() == "true");
+        b.AddAttribute(16, "disabled", field.IsReadOnly || _intercepting);
+        b.AddAttribute(17, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e =>
+            {
+                var val = e.Value is bool bv ? bv : e.Value?.ToString() == "true";
+                await HandleUserChange(val);
+            }));
+        b.CloseElement();
+
+        b.AddContent(18, field.Label);
+        b.CloseElement();
+    }
+
+    private void RenderSelect(RenderTreeBuilder b, FieldDefinition field)
+    {
+        var options = field.ListOptions?
+            .Split('|', StringSplitOptions.RemoveEmptyEntries)
+            .Select(o => o.Trim())
+            .ToList() ?? new List<string>();
+
+        var current = GetStringValue();
+
+        b.OpenElement(10, "select");
+        b.AddAttribute(11, "id",       $"field-{field.Id}");
+        b.AddAttribute(12, "class",    InputCss("fd-prop-select"));
+        b.AddAttribute(13, "disabled", field.IsReadOnly || _intercepting);
+        b.AddAttribute(14, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e => await HandleUserChange(e.Value?.ToString())));
+
+        b.OpenElement(15, "option");
+        b.AddAttribute(16, "value", "");
+        b.AddContent(17, "— Select —");
+        b.CloseElement();
+
+        foreach (var opt in options)
+        {
+            b.OpenElement(18, "option");
+            b.AddAttribute(19, "value",    opt);
+            if (opt == current) b.AddAttribute(20, "selected", true);
+            b.AddContent(21, opt);
+            b.CloseElement();
+        }
+
+        b.CloseElement(); // select
+    }
+
+    private void RenderTextArea(RenderTreeBuilder b, FieldDefinition field)
+    {
+        b.OpenElement(10, "textarea");
+        b.AddAttribute(11, "id",          $"field-{field.Id}");
+        b.AddAttribute(12, "class",       InputCss("fd-prop-input fd-textarea"));
+        b.AddAttribute(13, "placeholder", field.Placeholder);
+        b.AddAttribute(14, "readonly",    field.IsReadOnly || _intercepting);
+        b.AddAttribute(15, "onchange",    EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e => await HandleUserChange(e.Value?.ToString())));
+        b.AddElementReferenceCapture(16, r => _inputRef = r);
+        b.AddContent(17, GetStringValue());
+        b.CloseElement();
+    }
+
+    private void RenderCurrencyInput(RenderTreeBuilder b, FieldDefinition field)
+    {
+        b.OpenElement(10, "div");
+        b.AddAttribute(11, "class", "fd-currency-wrapper");
+
+        b.OpenElement(12, "span");
+        b.AddAttribute(13, "class", "fd-currency-symbol");
+        b.AddContent(14, "€");
+        b.CloseElement();
+
+        b.OpenElement(15, "input");
+        b.AddAttribute(16, "id",       $"field-{field.Id}");
+        b.AddAttribute(17, "class",    InputCss("fd-prop-input fd-currency-input"));
+        b.AddAttribute(18, "type",     "number");
+        b.AddAttribute(19, "step",     "0.01");
+        b.AddAttribute(20, "value",    GetStringValue());
+        b.AddAttribute(21, "readonly", field.IsReadOnly || _intercepting);
+        b.AddAttribute(22, "onchange", EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e =>
+            {
+                if (decimal.TryParse(e.Value?.ToString(), out var d))
+                    await HandleUserChange(d);
+            }));
+        b.AddElementReferenceCapture(23, r => _inputRef = r);
+        b.CloseElement();
+
+        b.CloseElement(); // fd-currency-wrapper
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  META-FIELD RENDERER
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void RenderMetaField(RenderTreeBuilder b, FieldDefinition field)
+    {
+        var serviceKey = field.MetaServiceKey ?? field.Type.ToString();
+
+        b.OpenElement(10, "div");
+        b.AddAttribute(11, "class", "fd-meta-wrapper");
+
+        b.OpenElement(12, "input");
+        b.AddAttribute(13, "id",           $"field-{field.Id}");
+        b.AddAttribute(14, "class",        InputCss("fd-prop-input"));
+        b.AddAttribute(15, "type",         "text");
+        b.AddAttribute(16, "value",        _displayValue);
+        b.AddAttribute(17, "placeholder",  field.Placeholder.Length > 0
+            ? field.Placeholder : $"Search {field.Label}…");
+        b.AddAttribute(18, "autocomplete", "off");
+        b.AddAttribute(19, "readonly",     _intercepting);
+        b.AddAttribute(20, "oninput",      EventCallback.Factory.Create<ChangeEventArgs>(
+            this, async e =>
+            {
+                _displayValue = e.Value?.ToString() ?? string.Empty;
+                _searchQuery  = _displayValue;
+                await TriggerMetaSearchAsync(serviceKey);
+            }));
+        b.AddAttribute(21, "onfocus", EventCallback.Factory.Create(
+            this, () => { if (_metaOptions.Any()) _showDropdown = true; }));
+        b.AddElementReferenceCapture(22, r => _inputRef = r);
+        b.CloseElement(); // input
+
+        if (_isLoadingMeta || _intercepting)
+        {
+            b.OpenElement(23, "div");
+            b.AddAttribute(24, "class", "fd-meta-loading");
+            b.AddContent(25, _intercepting ? "Validating…" : "Searching…");
+            b.CloseElement();
+        }
+
+        if (_showDropdown && _metaOptions.Any() && !_intercepting)
+        {
+            b.OpenElement(26, "div");
+            b.AddAttribute(27, "class", "fd-meta-dropdown");
+
+            foreach (var option in _metaOptions)
+            {
+                var opt = option;
+                b.OpenElement(28, "div");
+                b.AddAttribute(29, "class", "fd-meta-option");
+                b.AddAttribute(30, "onmousedown", EventCallback.Factory.Create(
+                    this, async () => await SelectMetaOptionAsync(field, serviceKey, opt)));
+
+                if (!string.IsNullOrWhiteSpace(opt.BadgeText))
+                {
+                    b.OpenElement(31, "span");
+                    b.AddAttribute(32, "class", "fd-meta-badge");
+                    b.AddAttribute(33, "style", $"color:{opt.BadgeColor ?? "#64748b"}");
+                    b.AddContent(34, opt.BadgeText);
+                    b.CloseElement();
+                }
+
+                b.OpenElement(35, "span");
+                b.AddAttribute(36, "class", "fd-meta-label");
+                b.AddContent(37, opt.Label);
+                b.CloseElement();
+
+                if (!string.IsNullOrWhiteSpace(opt.SubLabel))
+                {
+                    b.OpenElement(38, "span");
+                    b.AddAttribute(39, "class", "fd-meta-sublabel");
+                    b.AddContent(40, opt.SubLabel);
+                    b.CloseElement();
+                }
+
+                b.CloseElement(); // fd-meta-option
+            }
+
+            b.CloseElement(); // fd-meta-dropdown
+        }
+
+        b.CloseElement(); // fd-meta-wrapper
+    }
+
+    private async Task TriggerMetaSearchAsync(string serviceKey)
+    {
+        _metaCts?.Cancel();
+        _metaCts = new CancellationTokenSource();
+
+        if (_searchQuery.Length < 2)
+        {
+            _metaOptions  = new();
+            _showDropdown = false;
+            return;
+        }
+
+        _isLoadingMeta = true;
+        StateHasChanged();
+
+        try
+        {
+            await Task.Delay(300, _metaCts.Token);
+            var svc = MetaResolver.Resolve(serviceKey);
+            if (svc is null) return;
+
+            _metaOptions  = await svc.SearchAsync(_searchQuery, _metaCts.Token);
+            _showDropdown = _metaOptions.Any();
+        }
+        catch (OperationCanceledException) { }
+        finally
+        {
+            _isLoadingMeta = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SelectMetaOptionAsync(FieldDefinition field,
+                                              string serviceKey,
+                                              MetaFieldOption option)
+    {
+        // Run interceptor on the selected value
+        await HandleUserChange(option.Value);
+
+        // If accepted (state now has new value), update display and auto-fill
+        var committed = GetValue()?.ToString() == option.Value;
+        if (committed)
+        {
+            _displayValue = option.Label;
+            _showDropdown = false;
+            _metaOptions  = new();
+
+            var svc = MetaResolver.Resolve(serviceKey);
+            if (svc is not null)
+            {
+                var details = await svc.GetDetailsAsync(option.Value);
+                foreach (var kv in details)
+                    State.SetInstanceValue(FragmentId, kv.Key, kv.Value);
+            }
+        }
+        else
+        {
+            // Rejected — clear display back to old value
+            _displayValue = State.GetInstanceValue(FragmentId, _field.Key)?.ToString() ?? string.Empty;
+            _showDropdown = false;
+            _metaOptions  = new();
+        }
+
+        StateHasChanged();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  GRID RENDERER
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void RenderGrid(RenderTreeBuilder b, FieldDefinition field)
+    {
+        var stateRows = State.GetInstanceValue(FragmentId, field.Key) as List<GridRow>;
+        if (stateRows != null) _gridRows = stateRows;
+
+        var cols = field.GridColumns ?? new();
+
+        b.OpenElement(10, "div");
+        b.AddAttribute(11, "class", "fd-grid-wrapper");
+
+        b.OpenElement(12, "div");
+        b.AddAttribute(13, "class", "fd-grid-toolbar");
+        b.OpenElement(14, "button");
+        b.AddAttribute(15, "class",   "fd-btn fd-btn-primary fd-btn-sm");
+        b.AddAttribute(16, "onclick", EventCallback.Factory.Create(this, () =>
+        {
+            var row = new GridRow();
+            foreach (var col in cols) row.Values[col.Key] = null;
+            _gridRows.Add(row);
+            State.SetInstanceValue(FragmentId, field.Key, _gridRows);
+            StateHasChanged();
+        }));
+        b.AddContent(17, "+ Add Row");
+        b.CloseElement();
+        b.CloseElement();
+
+        b.OpenElement(18, "div");
+        b.AddAttribute(19, "class", "fd-grid-table");
+
+        b.OpenElement(20, "div");
+        b.AddAttribute(21, "class", "fd-grid-header");
+        b.OpenElement(22, "div");
+        b.AddAttribute(23, "class", "fd-grid-col fd-grid-col-handle");
+        b.CloseElement();
+        foreach (var col in cols)
+        {
+            b.OpenElement(24, "div");
+            b.AddAttribute(25, "class", "fd-grid-col");
+            b.AddAttribute(26, "style", $"width:{col.Width}px");
+            b.AddContent(27, col.Header);
+            b.CloseElement();
+        }
+        b.OpenElement(28, "div");
+        b.AddAttribute(29, "class", "fd-grid-col fd-grid-col-actions");
+        b.CloseElement();
+        b.CloseElement(); // header
+
+        for (int i = 0; i < _gridRows.Count; i++)
+        {
+            var rowIdx = i;
+            var row    = _gridRows[i];
+
+            b.OpenElement(30, "div");
+            b.AddAttribute(31, "class",       "fd-grid-row");
+            b.AddAttribute(32, "draggable",   "true");
+            b.AddAttribute(33, "ondragstart", EventCallback.Factory.Create(this, () => _dragRowIdx = rowIdx));
+            b.AddAttribute(34, "ondragover",  EventCallback.Factory.Create<DragEventArgs>(this, e => { }));
+            b.AddAttribute(34, "ondragover:preventDefault", true);
+            b.AddAttribute(35, "ondrop",      EventCallback.Factory.Create(this, () =>
+            {
+                if (_dragRowIdx >= 0 && _dragRowIdx != rowIdx)
+                {
+                    var item = _gridRows[_dragRowIdx];
+                    _gridRows.RemoveAt(_dragRowIdx);
+                    _gridRows.Insert(rowIdx, item);
+                    State.SetInstanceValue(FragmentId, field.Key, _gridRows);
+                }
+                _dragRowIdx = -1;
+                StateHasChanged();
+            }));
+
+            b.OpenElement(36, "div");
+            b.AddAttribute(37, "class", "fd-grid-col fd-grid-col-handle fd-drag-handle");
+            b.AddContent(38, "⠿");
+            b.CloseElement();
+
+            foreach (var col in cols)
+            {
+                var colKey  = col.Key;
+                var cellVal = row.Values.TryGetValue(colKey, out var v) ? v?.ToString() ?? "" : "";
+
+                b.OpenElement(39, "div");
+                b.AddAttribute(40, "class", "fd-grid-col");
+                b.AddAttribute(41, "style", $"width:{col.Width}px");
+
+                b.OpenElement(42, "input");
+                b.AddAttribute(43, "class",    "fd-grid-cell-input");
+                b.AddAttribute(44, "type",     "text");
+                b.AddAttribute(45, "value",    cellVal);
+                b.AddAttribute(46, "readonly", col.IsReadOnly);
+                b.AddAttribute(47, "oninput",  EventCallback.Factory.Create<ChangeEventArgs>(this, e =>
+                {
+                    // Grid cells do not go through the interceptor (they are sub-fields)
+                    _gridRows[rowIdx].Values[colKey] = e.Value?.ToString();
+                    State.SetInstanceValue(FragmentId, field.Key, _gridRows);
+                }));
+                b.CloseElement();
+
+                b.CloseElement();
+            }
+
+            b.OpenElement(48, "div");
+            b.AddAttribute(49, "class", "fd-grid-col fd-grid-col-actions");
+            b.OpenElement(50, "button");
+            b.AddAttribute(51, "class",   "fd-var-delete");
+            b.AddAttribute(52, "onclick", EventCallback.Factory.Create(this, () =>
+            {
+                _gridRows.RemoveAt(rowIdx);
+                State.SetInstanceValue(FragmentId, field.Key, _gridRows);
+                StateHasChanged();
+            }));
+            b.AddContent(53, "✕");
+            b.CloseElement();
+            b.CloseElement();
+
+            b.CloseElement(); // row
+        }
+
+        if (!_gridRows.Any())
+        {
+            b.OpenElement(60, "div");
+            b.AddAttribute(61, "class", "fd-grid-empty");
+            b.AddContent(62, "No rows. Click Add Row to begin.");
+            b.CloseElement();
+        }
+
+        b.CloseElement(); // fd-grid-table
+        b.CloseElement(); // fd-grid-wrapper
+    }
+
+    private int _dragRowIdx = -1;
+}
+

@@ -1,0 +1,274 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@using FAST.FormDesigner.Runtime.Validators
+@using System.Text.Json
+@inject IFormLayoutRepository   LayoutRepo
+@inject IFormFragmentRepository FragmentRepo
+@inject FormStateContainer      State
+@inject FormValidationService   Validator
+
+@* ─────────────────────────────────────────────────────────────────────────────
+   FastForm — the public entry point for FAST.FormDesigner.Runtime.
+
+   Usage:
+     <FastForm LayoutId="customer-management"
+               OnSubmit="HandleSubmit"
+               OnReset="HandleReset"
+               @ref="_form" />
+
+   Public API (via @ref):
+     _form.Reset()
+     _form.SetValues(json, merge: false)
+     _form.SetValue("homeAddress.street", "Ermou 12")
+     _form.GetValues()                     → full Data Document JSON
+     _form.GetValues(new[]{"customerCode"}) → Dictionary<string, object?>
+     _form.GetValue("customerCode")        → object?
+─────────────────────────────────────────────────────────────────────────────── *@
+
+<FormRenderer LayoutId="@LayoutId"
+              Layout="@Layout"
+              OnSubmit="OnSubmit"
+              OnReset="OnReset"
+              PreserveValues="@PreserveValues"
+              OnFieldChanging="OnFieldChanging"
+              @ref="_renderer" />
+
+@code {
+    [Parameter] public string?     LayoutId { get; set; }
+    [Parameter] public FormLayout? Layout   { get; set; }
+    [Parameter] public EventCallback<Dictionary<string, object?>> OnSubmit { get; set; }
+    [Parameter] public EventCallback OnReset { get; set; }
+    [Parameter] public bool PreserveValues { get; set; } = false;
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private FormRenderer? _renderer;
+
+    private static readonly JsonSerializerOptions _jsonOpts = new()
+    {
+        PropertyNameCaseInsensitive = true,
+        WriteIndented               = false
+    };
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  PUBLIC API
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>Resets all form field values and validation state.</summary>
+    public void Reset()
+    {
+        State.ResetSilent();
+        _renderer?.ForceRefresh();
+    }
+
+    /// <summary>
+    /// Forces the form to re-render all inputs from current state.
+    /// Call after SetValues() to update the UI.
+    /// </summary>
+    public void Refresh()
+    {
+        _renderer?.ForceRefresh();
+    }
+
+    /// <summary>
+    /// Loads field values from a Data Document JSON string.
+    /// merge=false (default): resets all values first, then applies the JSON.
+    /// merge=true:            only touches fields present in the JSON.
+    /// Key format mirrors the Data Document exactly:
+    ///   "customerCode"       → flat root field
+    ///   "homeAddress.street" → nested field (DataKey = "homeAddress")
+    ///   "contacts[0].name"   → repeating row field (DataKey = "contacts", row 0)
+    /// </summary>
+    public void SetValues(string json, bool merge = false)
+    {
+        if (!merge) State.ResetSilent();
+
+        Dictionary<string, JsonElement>? data;
+        try
+        {
+            data = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(json, _jsonOpts);
+        }
+        catch { return; }
+
+        if (data is null) return;
+
+        var scopes = _renderer?.GetScopes() ?? new();
+
+        foreach (var kv in data)
+        {
+            ApplyJsonElement(kv.Key, kv.Value, scopes);
+        }
+    }
+
+    /// <summary>
+    /// Sets a single field value using Data Document key notation.
+    /// Wrapper around SetValues — builds a minimal JSON and applies it.
+    /// merge=true so only this field is touched.
+    /// </summary>
+    public void SetValue(string key, object? value)
+    {
+        var json = value switch
+        {
+            null        => $"{{\"{EscapeJson(key)}\": null}}",
+            bool b      => $"{{\"{EscapeJson(key)}\": {(b ? "true" : "false")}}}",
+            int i       => $"{{\"{EscapeJson(key)}\": {i}}}",
+            long l      => $"{{\"{EscapeJson(key)}\": {l}}}",
+            double d    => $"{{\"{EscapeJson(key)}\": {d}}}",
+            decimal dec => $"{{\"{EscapeJson(key)}\": {dec}}}",
+            _           => $"{{\"{EscapeJson(key)}\": \"{EscapeJson(value.ToString() ?? string.Empty)}\"}}"
+        };
+        SetValues(json, merge: true);
+    }
+
+    /// <summary>
+    /// Returns the full current form data as a Data Document JSON string.
+    /// Same format as what OnSubmit produces.
+    /// </summary>
+    public string GetValues()
+    {
+        var scopes  = _renderer?.GetScopes() ?? new();
+        var payload = State.GetDataDocument(scopes);
+        return JsonSerializer.Serialize(payload, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    /// <summary>
+    /// Returns values for specific fields, keyed by the same Data Document notation.
+    /// Example: GetValues(new[] { "customerCode", "homeAddress.street", "contacts[0].name" })
+    /// </summary>
+    public Dictionary<string, object?> GetValues(string[] keys)
+    {
+        var result = new Dictionary<string, object?>();
+        var scopes = _renderer?.GetScopes() ?? new();
+
+        foreach (var key in keys)
+        {
+            result[key] = ResolveGetValue(key, scopes);
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Returns the value of a single field by Data Document key notation.
+    /// Wrapper around GetValues.
+    /// </summary>
+    public object? GetValue(string key)
+    {
+        var values = GetValues(new[] { key });
+        return values.TryGetValue(key, out var val) ? val : null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  INTERNAL HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /// <summary>
+    /// Walks a JSON element and applies it to state.
+    /// Handles flat, nested object, and repeating array structures.
+    /// </summary>
+    private void ApplyJsonElement(string key, JsonElement element,
+                                   List<DataDocumentScope> scopes)
+    {
+        switch (element.ValueKind)
+        {
+            case JsonValueKind.Object:
+            {
+                // Nested object: key is the DataKey, children are fieldKey → value
+                var scope = scopes.FirstOrDefault(s =>
+                    s.DataKey == key && !s.IsRepeating);
+
+                var instanceKey = scope?.InstanceKey ?? key;
+
+                foreach (var prop in element.EnumerateObject())
+                    State.SetInstanceValue(instanceKey, prop.Name,
+                        ExtractJsonValue(prop.Value));
+                break;
+            }
+
+            case JsonValueKind.Array:
+            {
+                // Repeating array: key is the DataKey, items are row objects
+                var scope = scopes.FirstOrDefault(s =>
+                    s.DataKey == key && s.IsRepeating);
+
+                var instanceKey = scope?.InstanceKey ?? key;
+                var rowIndex    = 0;
+
+                foreach (var item in element.EnumerateArray())
+                {
+                    if (item.ValueKind == JsonValueKind.Object)
+                    {
+                        foreach (var prop in item.EnumerateObject())
+                            State.SetInstanceRowValue(instanceKey, rowIndex,
+                                prop.Name, ExtractJsonValue(prop.Value));
+                    }
+                    rowIndex++;
+                }
+                break;
+            }
+
+            default:
+            {
+                // Flat root field: resolve instanceKey from layout scopes
+                var instanceKey = ResolveFlatInstanceKey(key, scopes);
+                State.SetInstanceValue(instanceKey, key, ExtractJsonValue(element));
+                break;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolves the instanceKey for a flat root field key by scanning scopes.
+    /// Falls back to the field key itself if not found.
+    /// </summary>
+    private static string ResolveFlatInstanceKey(string fieldKey,
+                                                  List<DataDocumentScope> scopes)
+    {
+        var flatScope = scopes.FirstOrDefault(s =>
+            string.IsNullOrWhiteSpace(s.DataKey) &&
+            s.FieldKeys.Contains(fieldKey));
+
+        return flatScope?.InstanceKey ?? fieldKey;
+    }
+
+    /// <summary>
+    /// Resolves a single value from state using Data Document key notation.
+    /// </summary>
+    private object? ResolveGetValue(string key, List<DataDocumentScope> scopes)
+    {
+        var parsed = DataDocumentKeyHelper.Parse(key);
+        if (parsed is null) return null;
+
+        if (parsed.IsRepeating)
+        {
+            var scope = scopes.FirstOrDefault(s =>
+                s.DataKey == parsed.DataKey && s.IsRepeating);
+            var instanceKey = scope?.InstanceKey ?? parsed.DataKey!;
+            return State.GetInstanceRowValue(instanceKey, parsed.RowIndex, parsed.FieldKey);
+        }
+
+        if (parsed.IsNested)
+        {
+            var scope = scopes.FirstOrDefault(s =>
+                s.DataKey == parsed.DataKey && !s.IsRepeating);
+            var instanceKey = scope?.InstanceKey ?? parsed.DataKey!;
+            return State.GetInstanceValue(instanceKey, parsed.FieldKey);
+        }
+
+        // Flat
+        var flatInstanceKey = ResolveFlatInstanceKey(parsed.FieldKey, scopes);
+        return State.GetInstanceValue(flatInstanceKey, parsed.FieldKey);
+    }
+
+    private static object? ExtractJsonValue(JsonElement el) => el.ValueKind switch
+    {
+        JsonValueKind.String  => el.GetString(),
+        JsonValueKind.Number  => el.TryGetDouble(out var d) ? d : (object?)el.ToString(),
+        JsonValueKind.True    => true,
+        JsonValueKind.False   => false,
+        JsonValueKind.Null    => null,
+        _                     => el.ToString()
+    };
+
+    private static string EscapeJson(string s) =>
+        s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+}

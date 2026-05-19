@@ -1,0 +1,753 @@
+@using FAST.FormDesigner.Services
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@inject IDesignerLayoutRepository  LayoutRepo
+@inject IDesignerFragmentRepository FragmentRepo
+@inject FormFragmentCache        FragCache
+@inject IJSRuntime          JS
+
+<div class="fd-editor-root">
+
+    @* ══════════════════════════════════════════════════════════════════════════
+       TOOLBAR
+    ══════════════════════════════════════════════════════════════════════════ *@
+    <div class="fd-toolbar">
+        <a href="/" class="fd-tool-btn fd-dashboard-btn" title="Back to Dashboard">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+                <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+        </a>
+        <div class="fd-toolbar-divider"></div>
+        <div class="fd-toolbar-group">
+
+            @* ── New button (with dirty guard) ── *@
+            <button class="fd-tool-btn" title="New Layout" @onclick="HandleNew">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                    <polyline points="14 2 14 8 20 8"/>
+                    <line x1="12" y1="18" x2="12" y2="12"/>
+                    <line x1="9" y1="15" x2="15" y2="15"/>
+                </svg>
+            </button>
+
+            @* ── File dropdown ── *@
+            <div class="fd-file-menu-wrapper">
+                <button class="fd-tool-btn fd-file-menu-btn @(_fileMenuOpen ? "active" : "")"
+                        title="File menu"
+                        @onclick="() => _fileMenuOpen = !_fileMenuOpen">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/>
+                        <polyline points="13 2 13 9 20 9"/>
+                    </svg>
+                    <span class="fd-file-menu-label">File</span>
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="margin-left:2px">
+                        <polyline points="6 9 12 15 18 9"/>
+                    </svg>
+                </button>
+
+                @if (_fileMenuOpen)
+                {
+                    <div class="fd-file-menu-dropdown">
+                        <button class="fd-file-menu-item" @onclick="async () => { _fileMenuOpen = false; await HandleSave(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                            Save to Repository
+                        </button>
+                        <button class="fd-file-menu-item" @onclick="async () => { _fileMenuOpen = false; await HandleSaveLocal(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                            Save Local
+                        </button>
+                        <div class="fd-file-menu-divider"></div>
+                        <button class="fd-file-menu-item" @onclick="() => { _fileMenuOpen = false; _loadModal?.Open(); }">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+                            Load
+                        </button>
+                    </div>
+                    <div class="fd-file-menu-overlay" @onclick="() => _fileMenuOpen = false"></div>
+                }
+            </div>
+
+        </div>
+        <div class="fd-toolbar-divider"></div>
+
+        @* ── Add structure buttons ── *@
+        <div class="fd-toolbar-group">
+            <button class="fd-tool-btn" title="Add Header Area" @onclick="AddHeaderArea">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="5" rx="1"/>
+                </svg>
+            </button>
+            <button class="fd-tool-btn" title="Add Tab Control" @onclick="AddTabControl">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="9" width="18" height="12" rx="1"/>
+                    <path d="M3 9h4V5h4v4h4V5h4v4"/>
+                </svg>
+            </button>
+            <button class="fd-tool-btn" title="Add Group" @onclick="AddGroup">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" stroke-dasharray="4 2"/>
+                </svg>
+            </button>
+        </div>
+        <div class="fd-toolbar-spacer"></div>
+        <div class="fd-toolbar-title">
+            @if (_isDirty){ <span class="fd-unsaved">●</span> }
+            @if (_editingTitle)
+            {
+                <input class="fd-title-input"
+                       @ref="_titleInputRef"
+                       value="@_layout.Name"
+                       @oninput="e => { _layout.Name = e.Value?.ToString() ?? string.Empty; _isDirty = true; }"
+                       @onblur="CommitTitle"
+                       @onkeydown="HandleTitleKey" />
+            }
+            else
+            {
+                <span class="fd-title-text" title="Click to rename" @onclick="StartEditTitle">@_layout.Name</span>
+            }
+        </div>
+        <div class="fd-toolbar-divider"></div>
+        <button class="fd-tool-btn fd-preview-toggle-btn @(_previewMode ? "active" : "")"
+                title="Preview"
+                @onclick="TogglePreview">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
+                <circle cx="12" cy="12" r="3"/>
+            </svg>
+            <span style="font-size:12px; margin-left:4px;">Preview</span>
+        </button>
+    </div>
+
+    @* ══════════════════════════════════════════════════════════════════════════
+       BODY  — three-panel layout
+    ══════════════════════════════════════════════════════════════════════════ *@
+    <div class="fd-main-layout">
+
+        @* ── LEFT PANEL: Fragment Library ── *@
+        <div class="fd-stencil">
+            <div class="fd-stencil-header">
+                <div class="fd-stencil-title">Fragment Library</div>
+            </div>
+
+            <div class="fd-stencil-search">
+                <input class="fd-prop-input fd-search-input"
+                       type="text"
+                       placeholder="Search fragments…"
+                       @bind="_fragmentSearch"
+                       @bind:event="oninput"/>
+            </div>
+
+            <div class="fd-stencil-items">
+                @foreach (var summary in FilteredFragments)
+                {
+                    var s         = summary;
+                    var isActive  = _activeFragmentId == s.Id;
+
+                    <div class="fd-stencil-item @(isActive ? "fd-stencil-item-active" : "")"
+                         title="@s.Description"
+                         @onclick="() => ActivateFragment(s.Id)">
+                        <div class="fd-fragment-icon">F</div>
+                        <div class="fd-stencil-item-info">
+                            <div class="fd-stencil-label">@s.Name</div>
+                            <div class="fd-stencil-sublabel">@s.FieldCount fields · @s.Category</div>
+                        </div>
+                        @if (isActive){ <span class="fd-stencil-active-dot">●</span> }
+                    </div>
+                }
+
+                @if (!FilteredFragments.Any())
+                {
+                    <div class="fd-stencil-empty">No fragments found.</div>
+                }
+            </div>
+
+            <div class="fd-stencil-add-btn-wrapper">
+                <button class="fd-btn fd-btn-secondary fd-btn-sm fd-stencil-add-btn"
+                        title="Add a fragment to the library from repository or local file"
+                        @onclick="() => { _addFragmentDuplicateError = null; _addFragmentModal?.Open(); }">
+                    + Add Fragment
+                </button>
+                @if (_addFragmentDuplicateError is not null)
+                {
+                    <div class="fd-stencil-add-error">⚠ @_addFragmentDuplicateError</div>
+                }
+            </div>
+
+            <div class="fd-stencil-hint">
+                @if (_activeFragmentId is not null)
+                {
+                    <span class="fd-hint-active">Click an Area to assign · Esc to cancel</span>
+                }
+                else
+                {
+                    <span class="fd-hint-idle">Click a Fragment to assign it to an Area</span>
+                }
+            </div>
+        </div>
+
+        @* ── CENTRE PANEL: Layout Canvas ── *@
+        <div class="fd-canvas-wrapper @(_activeFragmentId is not null ? "fd-assigning" : "")"
+             @onkeydown="HandleKeyDown"
+             @onclick="HandleCanvasClick"
+             tabindex="0">
+
+            @if (!_layout.Containers.Any())
+            {
+                <div class="fd-canvas-empty">
+                    <div class="fd-canvas-empty-icon">⬚</div>
+                    <div>Use the toolbar to add Areas, Tab Controls, or Groups</div>
+                </div>
+            }
+            else
+            {
+                <div class="fd-layout-canvas fd-node-grid">
+                    @foreach (var container in _layout.Containers.OrderBy(c => c.Order))
+                    {
+                        <DesignerNode Container="@container"
+                                      ActiveFragmentId="@_activeFragmentId"
+                                      SelectedContainerId="@_selectedId"
+                                      SiblingList="@_layout.Containers"
+                                      FragmentNames="@_fragmentNames"
+                                      OnAssignFragment="HandleAssignFragment"
+                                      OnSelectContainer="HandleSelectContainer"
+                                      OnDeleteContainer="HandleDeleteContainer"
+                                      OnAddChild="HandleAddChild"
+                                      OnReordered="HandleReordered" />
+                    }
+                </div>
+            }
+        </div>
+
+        @* ── RIGHT PANEL: Properties ── *@
+        <div class="fd-right-panel">
+            @if (_selectedContainer is not null)
+            {
+                <LayoutPropertiesPanel Container="@_selectedContainer"
+                                        AllFragments="@_fragments"
+                                        OnChanged="HandlePropertiesChanged" />
+            }
+            else
+            {
+                <div class="fd-props-empty">
+                    <span>Select a container to edit its properties.</span>
+                </div>
+            }
+        </div>
+
+    </div>
+
+    @* ── New confirmation dialog ── *@
+    @if (_newConfirmVisible)
+    {
+        <div class="fd-modal-backdrop" @onclick="() => _newConfirmVisible = false"></div>
+        <div class="fd-confirm-dialog">
+            <div class="fd-confirm-icon">⚠</div>
+            <div class="fd-confirm-title">Unsaved Changes</div>
+            <div class="fd-confirm-text">You have unsaved changes. Creating a new layout will discard them. Continue?</div>
+            <div class="fd-confirm-actions">
+                <button class="fd-btn fd-btn-danger" @onclick="DoNew">Discard &amp; New</button>
+                <button class="fd-btn fd-btn-ghost" @onclick="() => _newConfirmVisible = false">Cancel</button>
+            </div>
+        </div>
+    }
+
+    @* ── Load Design Modal (layout) ── *@
+    <LoadDesignModal @ref="_loadModal"
+                     EntityType="Layout"
+                     IsDirty="@_isDirty"
+                     OnLayoutLoaded="HandleLayoutLoaded" />
+
+    @* ── Add Fragment to Library Modal ── *@
+    <LoadDesignModal @ref="_addFragmentModal"
+                     EntityType="Fragment"
+                     IsDirty="false"
+                     OnFragmentLoaded="HandleAddFragmentToLibrary" />
+
+    @* ── PREVIEW OVERLAY — position:absolute over entire editor ── *@
+    @if (_previewMode)
+    {
+        <LayoutPreview Layout="@_layout" OnExitPreview="TogglePreview" />
+    }
+
+</div>
+
+@code {
+    [Parameter] public string? LayoutId { get; set; }
+
+    private FormLayout           _layout            = new();
+    private List<FragmentSummary> _fragments         = new();
+    private string?              _activeFragmentId;
+    private string?              _selectedId;
+    private LayoutNode?     _selectedContainer;
+    private string               _fragmentSearch    = string.Empty;
+    private bool                 _isDirty;
+    private Dictionary<string, string> _fragmentNames = new();
+    private bool                        _previewMode    = false;
+    private bool                        _fileMenuOpen   = false;
+    private bool                        _editingTitle   = false;
+    private ElementReference           _titleInputRef;
+    private LoadDesignModal?            _loadModal;
+    private LoadDesignModal?            _addFragmentModal;
+
+    private IEnumerable<FragmentSummary> FilteredFragments =>
+        _fragments.Where(f =>
+            string.IsNullOrWhiteSpace(_fragmentSearch) ||
+            f.Name.Contains(_fragmentSearch, StringComparison.OrdinalIgnoreCase) ||
+            f.Category.Contains(_fragmentSearch, StringComparison.OrdinalIgnoreCase));
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        _fragments = await FragmentRepo.GetAllSummariesAsync();
+        _fragmentNames = _fragments.ToDictionary(f => f.Id, f => f.Name);
+
+        if (!string.IsNullOrWhiteSpace(LayoutId))
+        {
+            var loaded = await LayoutRepo.GetByIdAsync(LayoutId);
+            if (loaded is not null)
+            {
+                _layout = loaded;
+                await SeedFragmentsFromLayout(_layout);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Walks the layout tree, fetches every assigned fragment that is not yet
+    /// in _fragmentNames, seeds the cache, and adds it to the library list.
+    /// Called both on initial load and after File → Load.
+    /// </summary>
+    private async Task SeedFragmentsFromLayout(FormLayout layout)
+    {
+        var assignedIds = CollectAssignedFragmentIds(layout.Containers);
+        foreach (var fragId in assignedIds)
+        {
+            // Check cache first (fragments added via "+ Add Fragment" live here)
+            var cached = await FragCache.GetAsync(fragId);
+            if (cached is not null)
+            {
+                _fragmentNames[fragId] = cached.Name;
+                // Update stored name in layout tree
+                UpdateStoredFragmentName(layout.Containers, fragId, cached.Name);
+                if (!_fragments.Any(f => f.Id == fragId))
+                    _fragments.Add(new FragmentSummary
+                    {
+                        Id         = cached.Id,
+                        Name       = cached.Name,
+                        Description = cached.Description,
+                        Category   = cached.Category,
+                        FieldCount = cached.Fields.Count
+                    });
+                continue;
+            }
+
+            // Then try repository (files on disk)
+            var frag = await FragmentRepo.GetByIdAsync(fragId);
+            if (frag is not null)
+            {
+                FragCache.Seed(frag);
+                _fragmentNames[fragId] = frag.Name;
+                UpdateStoredFragmentName(layout.Containers, fragId, frag.Name);
+                if (!_fragments.Any(f => f.Id == fragId))
+                    _fragments.Add(new FragmentSummary
+                    {
+                        Id          = frag.Id,
+                        Name        = frag.Name,
+                        Description = frag.Description,
+                        Category    = frag.Category,
+                        FieldCount  = frag.Fields.Count
+                    });
+            }
+            else
+            {
+                // Not in cache or disk — show short ID hint so user knows which one
+                if (!_fragmentNames.ContainsKey(fragId))
+                    _fragmentNames[fragId] = $"⚠ Fragment missing ({fragId[..8]}…)";
+            }
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  TOOLBAR ACTIONS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void HandleNew()
+    {
+        if (_isDirty)
+        {
+            _newConfirmVisible = true;
+            StateHasChanged();
+            return;
+        }
+        DoNew();
+    }
+
+    private bool _newConfirmVisible = false;
+
+    private void DoNew()
+    {
+        _layout             = new FormLayout();
+        _isDirty            = false;
+        _newConfirmVisible  = false;
+        _selectedId         = null;
+        _selectedContainer  = null;
+        StateHasChanged();
+    }
+
+    private async Task HandleSave()
+    {
+        await LayoutRepo.SaveAsync(_layout);
+        _isDirty = false;
+    }
+
+    private async Task HandleSaveLocal()
+    {
+        var safeName = string.IsNullOrWhiteSpace(_layout.Name)
+            ? _layout.Id
+            : System.Text.RegularExpressions.Regex.Replace(
+                _layout.Name.Trim().ToLowerInvariant(), @"[^a-z0-9]+", "-").Trim('-');
+
+        if (_layout.Id.Contains('-') && _layout.Id.Length == 36)
+            _layout.Id = safeName;
+
+        var json = System.Text.Json.JsonSerializer.Serialize(_layout,
+            new System.Text.Json.JsonSerializerOptions { WriteIndented = true });
+        await JS.InvokeVoidAsync("downloadJson", $"{safeName}.layout", json);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  ADD STRUCTURE
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void AddHeaderArea()
+    {
+        var container = new LayoutNode
+        {
+            Label      = "Header",
+            Type       = ContainerType.Area,
+            ColumnSpan = ColumnSpan.Four,
+            Order      = _layout.Containers.Count,
+            Area       = new LayoutArea { Label = "Header Area" }
+        };
+        _layout.Containers.Add(container);
+        MarkDirty();
+    }
+
+    private void AddTabControl()
+    {
+        var tabControl = new LayoutNode
+        {
+            Label      = "Tab Control",
+            Type       = ContainerType.TabControl,
+            ColumnSpan = ColumnSpan.Four,
+            Order      = _layout.Containers.Count,
+            Children   = new List<LayoutNode>
+            {
+                new() { Label="Tab 1", Type=ContainerType.TabPage, Order=0,
+                        Children=new List<LayoutNode>
+                        {
+                            new() { Label="Area", Type=ContainerType.Area,
+                                    ColumnSpan=ColumnSpan.Four, Order=0,
+                                    Area=new LayoutArea { Label="Tab 1 Area" } }
+                        }},
+                new() { Label="Tab 2", Type=ContainerType.TabPage, Order=1,
+                        Children=new List<LayoutNode>
+                        {
+                            new() { Label="Area", Type=ContainerType.Area,
+                                    ColumnSpan=ColumnSpan.Four, Order=0,
+                                    Area=new LayoutArea { Label="Tab 2 Area" } }
+                        }}
+            }
+        };
+        _layout.Containers.Add(tabControl);
+        MarkDirty();
+    }
+
+    private void AddGroup()
+    {
+        var group = new LayoutNode
+        {
+            Label      = "Group",
+            Type       = ContainerType.Group,
+            ColumnSpan = ColumnSpan.Four,
+            Order      = _layout.Containers.Count,
+            Children   = new List<LayoutNode>
+            {
+                new() { Label="Area 1", Type=ContainerType.Area,
+                        ColumnSpan=ColumnSpan.Two, Order=0,
+                        Area=new LayoutArea { Label="Left Area" } },
+                new() { Label="Area 2", Type=ContainerType.Area,
+                        ColumnSpan=ColumnSpan.Two, Order=1,
+                        Area=new LayoutArea { Label="Right Area" } }
+            }
+        };
+        _layout.Containers.Add(group);
+        MarkDirty();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  THE KEY INTEGRATION: ASSIGN FRAGMENT TO AREA
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void ActivateFragment(string fragmentId)
+    {
+        _activeFragmentId = _activeFragmentId == fragmentId ? null : fragmentId;
+    }
+
+    /// <summary>
+    /// Called by DesignerNode when the user clicks an Area while a Fragment
+    /// is active in the library panel.
+    /// This is THE integration point between Editor A and Editor B.
+    /// </summary>
+    private void HandleAssignFragment(string areaId)
+    {
+        if (_activeFragmentId is null) return;
+
+        var area = FindArea(_layout.Containers, areaId);
+        if (area is not null)
+        {
+            area.AssignedFragmentId   = _activeFragmentId;
+            // Store name so it's available even if the fragment file is missing later
+            area.AssignedFragmentName = _fragmentNames.TryGetValue(_activeFragmentId, out var n) ? n : null;
+            MarkDirty();
+        }
+
+        _activeFragmentId = null;
+    }
+
+    private static LayoutArea? FindArea(
+        IEnumerable<LayoutNode> containers, string areaId)
+    {
+        foreach (var c in containers)
+        {
+            if (c.Area?.Id == areaId) return c.Area;
+            var found = FindArea(c.Children, areaId);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  SELECTION & DELETION
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private void HandleSelectContainer(string containerId)
+    {
+        _selectedId        = containerId;
+        _selectedContainer = FindContainer(_layout.Containers, containerId);
+    }
+
+    private void HandleDeleteContainer(string containerId)
+    {
+        RemoveContainer(_layout.Containers, containerId);
+        if (_selectedId == containerId)
+        {
+            _selectedId        = null;
+            _selectedContainer = null;
+        }
+        MarkDirty();
+    }
+
+    private void HandleAddChild((string parentId, ContainerType type) args)
+    {
+        var parent = FindContainer(_layout.Containers, args.parentId);
+        if (parent is null) return;
+
+        LayoutNode child = args.type switch
+        {
+            ContainerType.TabPage => new()
+            {
+                Label    = $"Tab {parent.Children.Count + 1}",
+                Type     = ContainerType.TabPage,
+                Order    = parent.Children.Count,
+                Children = new List<LayoutNode>
+                {
+                    new() { Label="Area", Type=ContainerType.Area,
+                            ColumnSpan=ColumnSpan.Four, Order=0,
+                            Area=new LayoutArea() }
+                }
+            },
+            ContainerType.Area => new()
+            {
+                Label      = "New Area",
+                Type       = ContainerType.Area,
+                ColumnSpan = ColumnSpan.Two,
+                Order      = parent.Children.Count,
+                Area       = new LayoutArea()
+            },
+            _ => new() { Label="New Container", Type=args.type,
+                         Order=parent.Children.Count }
+        };
+
+        parent.Children.Add(child);
+        MarkDirty();
+    }
+
+    private void HandlePropertiesChanged()
+    {
+        MarkDirty();
+        StateHasChanged();
+    }
+
+    private void HandleReordered()
+    {
+        MarkDirty();
+        StateHasChanged();
+    }
+
+    private void HandleAddFragmentToLibrary(FormFragment fragment)
+    {
+        // Reject duplicates — same ID already in library
+        if (_fragments.Any(f => f.Id == fragment.Id))
+        {
+            _addFragmentDuplicateError = $"Fragment '{fragment.Name}' (ID: {fragment.Id}) is already in the library.";
+            StateHasChanged();
+            return;
+        }
+
+        _addFragmentDuplicateError = null;
+        // Seed the cache so the renderer finds it without hitting disk
+        FragCache.Seed(fragment);
+        _fragments.Add(new FragmentSummary
+        {
+            Id          = fragment.Id,
+            Name        = fragment.Name,
+            Description = fragment.Description,
+            Category    = fragment.Category,
+            FieldCount  = fragment.Fields.Count
+        });
+        _fragmentNames[fragment.Id] = fragment.Name;
+        StateHasChanged();
+    }
+
+    private string? _addFragmentDuplicateError;
+
+    private async Task HandleLayoutLoaded(FormLayout layout)
+    {
+        _layout            = layout;
+        _isDirty           = false;
+        _selectedId        = null;
+        _selectedContainer = null;
+        _fragmentNames     = _fragments.ToDictionary(f => f.Id, f => f.Name);
+        await SeedFragmentsFromLayout(layout);
+        StateHasChanged();
+    }
+
+    /// <summary>Recursively collects all AssignedFragmentIds from the layout tree.</summary>
+    private static List<string> CollectAssignedFragmentIds(List<LayoutNode> containers)
+    {
+        var ids = new List<string>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area &&
+                node.Area is not null &&
+                !string.IsNullOrWhiteSpace(node.Area.AssignedFragmentId))
+            {
+                ids.Add(node.Area.AssignedFragmentId);
+            }
+            if (node.Children.Any())
+                ids.AddRange(CollectAssignedFragmentIds(node.Children));
+        }
+        return ids;
+    }
+
+    private static void UpdateStoredFragmentName(List<LayoutNode> containers, string fragId, string name)
+    {
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area?.AssignedFragmentId == fragId)
+                node.Area.AssignedFragmentName = name;
+            if (node.Children.Any())
+                UpdateStoredFragmentName(node.Children, fragId, name);
+        }
+    }
+
+    /// <summary>Returns a dict of fragmentId → stored name from the layout tree.</summary>
+    private static Dictionary<string, string?> CollectAssignedFragmentNames(List<LayoutNode> containers)
+    {
+        var dict = new Dictionary<string, string?>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area &&
+                node.Area is not null &&
+                !string.IsNullOrWhiteSpace(node.Area.AssignedFragmentId))
+            {
+                dict[node.Area.AssignedFragmentId] = node.Area.AssignedFragmentName;
+            }
+            if (node.Children.Any())
+                foreach (var kv in CollectAssignedFragmentNames(node.Children))
+                    dict[kv.Key] = kv.Value;
+        }
+        return dict;
+    }
+
+    private async Task StartEditTitle()
+    {
+        _editingTitle = true;
+        StateHasChanged();
+        await Task.Delay(50); // let input render
+        try { await JS.InvokeVoidAsync("focusElement", _titleInputRef); } catch { }
+    }
+
+    private void CommitTitle()
+    {
+        _editingTitle = false;
+        if (string.IsNullOrWhiteSpace(_layout.Name))
+            _layout.Name = "New Layout";
+        StateHasChanged();
+    }
+
+    private void HandleTitleKey(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter" || e.Key == "Escape")
+            CommitTitle();
+    }
+
+    private void TogglePreview()
+    {
+        _previewMode = !_previewMode;
+        StateHasChanged();
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    //  TREE HELPERS
+    // ─────────────────────────────────────────────────────────────────────────
+
+    private static LayoutNode? FindContainer(
+        IEnumerable<LayoutNode> containers, string id)
+    {
+        foreach (var c in containers)
+        {
+            if (c.Id == id) return c;
+            var found = FindContainer(c.Children, id);
+            if (found is not null) return found;
+        }
+        return null;
+    }
+
+    private static bool RemoveContainer(
+        List<LayoutNode> containers, string id)
+    {
+        for (int i = 0; i < containers.Count; i++)
+        {
+            if (containers[i].Id == id) { containers.RemoveAt(i); return true; }
+            if (RemoveContainer(containers[i].Children, id)) return true;
+        }
+        return false;
+    }
+
+    private void MarkDirty() { _isDirty = true; StateHasChanged(); }
+
+    private void HandleCanvasClick()
+    {
+        // Clicking the canvas background deselects everything
+        _selectedId        = null;
+        _selectedContainer = null;
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "Escape") _activeFragmentId = null;
+    }
+}

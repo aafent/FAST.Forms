@@ -1,0 +1,101 @@
+@using FAST.FormDesigner.Runtime.Models
+
+@* ── Toolbar ── *@
+<div class="sim-data-toolbar">
+    <span class="sim-data-label">
+        Field Change Log
+        @if (_logEntries.Any())
+        { <span class="sim-log-count">(@_logEntries.Count)</span> }
+    </span>
+    @if (_logEntries.Any())
+    {
+        <button class="sim-copy-btn" @onclick="Clear">🗑 Clear</button>
+    }
+</div>
+
+@* ── Body ── *@
+@if (!_logEntries.Any())
+{
+    <div class="sim-json-empty">
+        No field changes yet.<br/>
+        Edit fields in the form to see events here.
+    </div>
+}
+else
+{
+    <div class="sim-log-list">
+        @foreach (var entry in _logEntries)
+        {
+            <div class="sim-log-entry">
+                <div class="sim-log-entry-header">
+                    <span class="sim-log-time">@entry.Timestamp.ToString("HH:mm:ss.fff")</span>
+                    <span class="sim-log-field">@entry.FieldKey</span>
+                    @if (entry.RowIndex > 0)
+                    {
+                        <span class="sim-log-badge sim-log-badge-row">row @entry.RowIndex</span>
+                    }
+                </div>
+                <div class="sim-log-entry-body">
+                    <div class="sim-log-row">
+                        <span class="sim-log-key">instance</span>
+                        <span class="sim-log-val">@entry.InstanceKey</span>
+                    </div>
+                    @if (!string.IsNullOrWhiteSpace(entry.DataKey))
+                    {
+                        <div class="sim-log-row">
+                            <span class="sim-log-key">dataKey</span>
+                            <span class="sim-log-val">@entry.DataKey</span>
+                        </div>
+                    }
+                    <div class="sim-log-row">
+                        <span class="sim-log-key">old</span>
+                        <span class="sim-log-val sim-log-old">@(entry.OldValue?.ToString() ?? "—")</span>
+                    </div>
+                    <div class="sim-log-row">
+                        <span class="sim-log-key">new</span>
+                        <span class="sim-log-val sim-log-new">@(entry.NewValue?.ToString() ?? "—")</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+
+@code {
+    private readonly List<LogEntry> _logEntries = new();
+
+    private sealed record LogEntry(
+        DateTime Timestamp,
+        string   InstanceKey,
+        string?  DataKey,
+        string   FieldKey,
+        int      RowIndex,
+        object?  OldValue,
+        object?  NewValue);
+
+    /// <summary>
+    /// Called by SimulatorPage interceptor. Adds entry and re-renders
+    /// only this component — the parent page and FastForm are untouched.
+    /// </summary>
+    public void AddEntry(FieldChangingArgs args)
+    {
+        _logEntries.Insert(0, new LogEntry(
+            Timestamp:   DateTime.Now,
+            InstanceKey: args.InstanceKey,
+            DataKey:     args.DataKey,
+            FieldKey:    args.FieldKey,
+            RowIndex:    args.RowIndex,
+            OldValue:    args.OldValue,
+            NewValue:    args.NewValue));
+
+        StateHasChanged();
+    }
+
+    public void Clear()
+    {
+        _logEntries.Clear();
+        StateHasChanged();
+    }
+
+    public bool HasEntries => _logEntries.Any();
+}

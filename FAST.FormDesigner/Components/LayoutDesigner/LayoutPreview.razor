@@ -1,0 +1,142 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@using FAST.FormDesigner.Runtime.Components
+@inject IJSRuntime JS
+
+<div class="fd-preview-overlay">
+
+    <div class="fd-preview-toolbar">
+
+        <button class="fd-preview-back-btn" @onclick="OnExitPreview">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            Design
+        </button>
+
+        <div class="fd-preview-toolbar-divider"></div>
+
+        <div class="fd-preview-viewports">
+            @foreach (var vp in _viewports)
+            {
+                var v = vp;
+                <button class="fd-preview-vp-btn @(_active.Label == v.Label ? "fd-vp-active" : "")"
+                        title="@v.Label (@v.Width × @v.Height px)"
+                        @onclick="() => SetViewport(v)">
+                    @((MarkupString)v.Icon)
+                    <span class="fd-vp-label">@v.Label</span>
+                    <span class="fd-vp-size">@v.Width px</span>
+                </button>
+            }
+        </div>
+
+        <div class="fd-preview-toolbar-divider"></div>
+
+        <button class="fd-preview-reset-btn" title="Reset form" @onclick="ResetPreview">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.54"/></svg>
+            Reset
+        </button>
+
+        <div class="fd-preview-toolbar-divider"></div>
+
+        <div class="fd-preview-scroll-nav">
+            <button class="fd-preview-scroll-btn" title="Scroll to Top"    @onclick='() => ScrollPreview("top")'><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg></button>
+            <button class="fd-preview-scroll-btn" title="Scroll to Left"   @onclick='() => ScrollPreview("left")'><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="fd-preview-scroll-btn fd-preview-scroll-home" title="Home" @onclick='() => ScrollPreview("home")'><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></button>
+            <button class="fd-preview-scroll-btn" title="Scroll to Right"  @onclick='() => ScrollPreview("right")'><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg></button>
+            <button class="fd-preview-scroll-btn" title="Scroll to Bottom" @onclick='() => ScrollPreview("bottom")'><svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg></button>
+        </div>
+
+        <div class="fd-preview-toolbar-spacer"></div>
+
+        <div class="fd-preview-vp-info">
+            <span class="fd-vp-current-label">@_active.Label</span>
+            <span class="fd-vp-current-size">@_active.Width × @_active.Height px · @(Math.Round(Scale * 100))%</span>
+        </div>
+
+    </div>
+
+    <div class="fd-preview-canvas" @ref="_canvasRef">
+        <div class="fd-preview-scaler" style="width: @(ScaledWidthStr)px; height: @(ScaledHeightStr)px; position: relative;">
+            <div style="width: @(_active.Width)px; height: @(_active.Height)px; transform: scale(@ScaleStr); transform-origin: top left; position: absolute; top: 0; left: 0;">
+                <div class="fd-preview-device" style="width: @(_active.Width)px; height: @(_active.Height)px; overflow-y: auto; overflow-x: hidden;">
+                    <div class="fd-preview-form">
+                        @if (Layout is not null && Layout.Containers.Any())
+                        {
+                            <FastForm @key="_previewKey" Layout="@Layout" @ref="_previewForm" />
+                        }
+                        else
+                        {
+                            <div class="fd-preview-no-content">
+                                <span>No layout containers to preview.</span>
+                            </div>
+                        }
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+@code {
+    [Parameter] public FormLayout?   Layout        { get; set; }
+    [Parameter] public EventCallback OnExitPreview { get; set; }
+
+    private ElementReference _canvasRef;
+    private double           _canvasW    = 1200;
+    private double           _canvasH    = 800;
+    private FastForm?        _previewForm;
+    private int              _previewKey = 0;
+
+    private record ViewportDef(string Label, int Width, int Height, string Icon);
+
+    private static readonly string MonitorIcon = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="22" height="14" rx="1"/><line x1="8" y1="20" x2="16" y2="20"/><line x1="12" y1="17" x2="12" y2="20"/></svg>""";
+    private static readonly string LaptopIcon  = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="12" rx="1"/><path d="M1 19h22"/></svg>""";
+    private static readonly string TabletIcon  = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="18.5" r="0.8" fill="currentColor"/></svg>""";
+    private static readonly string MobileIcon  = """<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="7" y="2" width="10" height="20" rx="2"/><circle cx="12" cy="18.5" r="0.8" fill="currentColor"/></svg>""";
+
+    private readonly List<ViewportDef> _viewports = new()
+    {
+        new("Wide",    1920, 1080, MonitorIcon),
+        new("Desktop", 1440,  900, MonitorIcon),
+        new("Laptop",  1024,  768, LaptopIcon),
+        new("Tablet",   768, 1024, TabletIcon),
+        new("Mobile",   375,  812, MobileIcon),
+    };
+
+    private ViewportDef _active = null!;
+
+    private double Scale           => Math.Min(1.0, (_canvasW - 96) / _active.Width);
+    private string ScaleStr        => Scale.ToString("F4", System.Globalization.CultureInfo.InvariantCulture);
+    private string ScaledWidthStr  => (_active.Width  * Scale).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+    private string ScaledHeightStr => (_active.Height * Scale).ToString("F1", System.Globalization.CultureInfo.InvariantCulture);
+
+    protected override void OnInitialized()
+    {
+        _active = _viewports[1];
+    }
+
+    private void ResetPreview() { _previewForm?.Reset(); }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try { await JS.InvokeVoidAsync("observeCanvasSize", _canvasRef, DotNetObjectReference.Create(this)); }
+            catch { _canvasW = 1100; _canvasH = 800; StateHasChanged(); }
+        }
+    }
+
+    [JSInvokable]
+    public void SetCanvasDimensions(double width, double height)
+    {
+        _canvasW = width; _canvasH = height;
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task ScrollPreview(string direction)
+    {
+        try { await JS.InvokeVoidAsync("scrollCanvas", ".fd-preview-device", direction); } catch { }
+    }
+
+    private void SetViewport(ViewportDef vp) { _active = vp; StateHasChanged(); }
+}

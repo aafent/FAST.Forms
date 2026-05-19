@@ -1,0 +1,30 @@
+[
+  {
+    "id": "fragment-masterdata",
+    "name": "Master Data",
+    "description": "Core customer identification fields",
+    "category": "Master Data",
+    "fieldCount": 4
+  },
+  {
+    "id": "fragment-address",
+    "name": "Fragment_Address",
+    "description": "Physical and postal address details",
+    "category": "Address",
+    "fieldCount": 4
+  },
+  {
+    "id": "fragment-contacts",
+    "name": "Fragment_Contacts",
+    "description": "Contact persons grid",
+    "category": "Contacts",
+    "fieldCount": 1
+  },
+  {
+    "id": "fragment-salespolicy",
+    "name": "Fragment_SalesPolicy",
+    "description": "Pricing and payment terms for the customer",
+    "category": "Sales Policy",
+    "fieldCount": 4
+  }
+]

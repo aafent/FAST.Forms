@@ -1,0 +1,139 @@
+@using FAST.FormDesigner.Runtime.Models
+@* Recursive component — renders any LayoutNode node.
+   Called by FormRenderer for the root level, then calls itself
+   for each child, producing full recursive tree rendering. *@
+
+@if (Container is null) { return; }
+
+@switch (Container.Type)
+{
+    // ── AREA ──────────────────────────────────────────────────────────────────
+    // Leaf node. Renders either a FragmentRenderer or an empty placeholder.
+    case ContainerType.Area:
+    {
+        var area = Container.Area;
+        <div class="fd-layout-area fd-col-@((int)Container.ColumnSpan)">
+            @if (!string.IsNullOrWhiteSpace(Container.Label))
+            {
+                <div class="fd-area-label">@Container.Label</div>
+            }
+            @if (area is not null)
+            {
+                @if (!string.IsNullOrWhiteSpace(area.AssignedFragmentId))
+                {
+                    <FragmentRenderer FragmentId="@area.AssignedFragmentId"
+                              InstanceKey="@(area.DataKey ?? area.AssignedFragmentId)"
+                              DataKey="@area.DataKey"
+                              OnFieldChanging="OnFieldChanging" />
+                }
+                else
+                {
+                    <div class="fd-area-placeholder">
+                        <span class="fd-placeholder-icon">⬚</span>
+                        <span class="fd-placeholder-hint">@area.PlaceholderHint</span>
+                    </div>
+                }
+            }
+        </div>
+        break;
+    }
+
+    // ── GROUP ─────────────────────────────────────────────────────────────────
+    // Contains child containers laid out in a row.
+    case ContainerType.Group:
+    {
+        <div class="fd-layout-group fd-col-@((int)Container.ColumnSpan)">
+            @if (!string.IsNullOrWhiteSpace(Container.Label))
+            {
+                <div class="fd-group-title">@Container.Label</div>
+            }
+            <div class="fd-node-grid">
+                @foreach (var child in Container.Children.OrderBy(c => c.Order))
+                {
+                    @* Recursive call *@
+                    <LayoutContainer Container="@child" OnFieldChanging="OnFieldChanging" />
+                }
+            </div>
+        </div>
+        break;
+    }
+
+    // ── TAB CONTROL ───────────────────────────────────────────────────────────
+    // Contains TabPage children. Renders a tab bar + active page content.
+    case ContainerType.TabControl:
+    {
+        var tabs = Container.Children
+            .Where(c => c.Type == ContainerType.TabPage)
+            .OrderBy(c => c.Order)
+            .ToList();
+
+        if (!tabs.Any()) break;
+
+        // Initialise active tab if not set
+        if (string.IsNullOrEmpty(_activeTabId))
+            _activeTabId = tabs.First().Id;
+
+        <div class="fd-tab-control fd-col-@((int)Container.ColumnSpan)">
+
+            @* Tab bar *@
+            <div class="fd-tab-bar">
+                @foreach (var tab in tabs)
+                {
+                    var t = tab;
+                    <button class="fd-tab-btn @(_activeTabId == t.Id ? "active" : "")"
+                            @onclick="() => _activeTabId = t.Id">
+                        @t.Label
+                    </button>
+                }
+            </div>
+
+            @* Active tab content *@
+            @foreach (var tab in tabs)
+            {
+                <div class="@(_activeTabId == tab.Id ? "fd-tab-active" : "fd-tab-hidden")">
+                    @* Recursive call for each child of the tab page *@
+                    <LayoutContainer Container="@tab" OnFieldChanging="OnFieldChanging" />
+                </div>
+            }
+
+        </div>
+        break;
+    }
+
+    // ── TAB PAGE ──────────────────────────────────────────────────────────────
+    // Content of a single tab. Renders its children recursively.
+    case ContainerType.TabPage:
+    {
+        <div class="fd-node-grid">
+            @foreach (var child in Container.Children.OrderBy(c => c.Order))
+            {
+                <LayoutContainer Container="@child" OnFieldChanging="OnFieldChanging" />
+            }
+        </div>
+        break;
+    }
+}
+
+@code {
+    [Parameter, EditorRequired] public LayoutNode? Container { get; set; }
+
+    /// <summary>Field change interceptor — threaded down from FastForm.</summary>
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private string _activeTabId = string.Empty;
+
+    protected override void OnParametersSet()
+    {
+        // Reset active tab when the container changes
+        if (Container?.Type == ContainerType.TabControl)
+        {
+            var first = Container.Children
+                .Where(c => c.Type == ContainerType.TabPage)
+                .OrderBy(c => c.Order)
+                .FirstOrDefault();
+
+            if (first is not null && string.IsNullOrEmpty(_activeTabId))
+                _activeTabId = first.Id;
+        }
+    }
+}

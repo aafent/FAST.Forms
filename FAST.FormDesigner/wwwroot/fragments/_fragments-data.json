@@ -1,0 +1,307 @@
+[
+  {
+    "id": "fragment-masterdata",
+    "name": "Master Data",
+    "description": "Core customer identification fields",
+    "category": "Master Data",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z",
+    "fields": [
+      {
+        "id": "f-customercode",
+        "key": "customerCode",
+        "label": "Customer Code",
+        "type": "CustomerLookup",
+        "category": "Advanced",
+        "order": 0,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "Search customer…",
+        "hintText": "Type at least 2 characters to search",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": "CustomerLookup",
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-1", "type": "Required", "value": null, "message": "Customer Code is required." }
+        ]
+      },
+      {
+        "id": "f-customername",
+        "key": "customerName",
+        "label": "Customer Name",
+        "type": "Text",
+        "category": "Standard",
+        "order": 1,
+        "columnSpan": 2,
+        "isReadOnly": true,
+        "isVisible": true,
+        "placeholder": "Auto-filled from lookup",
+        "hintText": "Filled automatically when a customer is selected",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": []
+      },
+      {
+        "id": "f-taxnumber",
+        "key": "taxNumber",
+        "label": "Tax Number",
+        "type": "Text",
+        "category": "Standard",
+        "order": 2,
+        "columnSpan": 2,
+        "isReadOnly": true,
+        "isVisible": true,
+        "placeholder": "Auto-filled from lookup",
+        "hintText": "",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": []
+      },
+      {
+        "id": "f-category",
+        "key": "category",
+        "label": "Category",
+        "type": "ListOfValues",
+        "category": "Standard",
+        "order": 3,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "",
+        "hintText": "Affects credit limit rules in Sales Policy",
+        "defaultValue": null,
+        "listOptions": "BRONZE|SILVER|GOLD|PLATINUM",
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-2", "type": "Required", "value": null, "message": "Category is required." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fragment-address",
+    "name": "Fragment_Address",
+    "description": "Physical and postal address details",
+    "category": "Address",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z",
+    "fields": [
+      {
+        "id": "f-street",
+        "key": "street",
+        "label": "Street & Number",
+        "type": "Text",
+        "category": "Standard",
+        "order": 0,
+        "columnSpan": 4,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "e.g. Ermou 12",
+        "hintText": "",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-3", "type": "Required", "value": null, "message": "Street is required." }
+        ]
+      },
+      {
+        "id": "f-city",
+        "key": "city",
+        "label": "City",
+        "type": "Text",
+        "category": "Standard",
+        "order": 1,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "City",
+        "hintText": "",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-4", "type": "Required", "value": null, "message": "City is required." }
+        ]
+      },
+      {
+        "id": "f-postalcode",
+        "key": "postalCode",
+        "label": "Postal Code",
+        "type": "Text",
+        "category": "Standard",
+        "order": 2,
+        "columnSpan": 1,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "e.g. 10557",
+        "hintText": "",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-5", "type": "Regex", "value": "^\\d{5}$", "message": "Postal code must be 5 digits." }
+        ]
+      },
+      {
+        "id": "f-country",
+        "key": "country",
+        "label": "Country",
+        "type": "ListOfValues",
+        "category": "Standard",
+        "order": 3,
+        "columnSpan": 1,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "",
+        "hintText": "",
+        "defaultValue": "Greece",
+        "listOptions": "Greece|Cyprus|Bulgaria|Albania|North Macedonia",
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-6", "type": "Required", "value": null, "message": "Country is required." }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "fragment-contacts",
+    "name": "Fragment_Contacts",
+    "description": "Contact persons grid",
+    "category": "Contacts",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z",
+    "fields": [
+      {
+        "id": "f-contactsgrid",
+        "key": "contacts",
+        "label": "Contact Persons",
+        "type": "Grid",
+        "category": "Standard",
+        "order": 0,
+        "columnSpan": 4,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "",
+        "hintText": "Add all relevant contact persons for this customer",
+        "defaultValue": null,
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": [
+          { "key": "contactName",  "header": "Name",       "type": "Text",  "width": 200, "isReadOnly": false },
+          { "key": "contactRole",  "header": "Role",       "type": "Text",  "width": 140, "isReadOnly": false },
+          { "key": "contactPhone", "header": "Phone",      "type": "Text",  "width": 140, "isReadOnly": false },
+          { "key": "contactEmail", "header": "Email",      "type": "Text",  "width": 200, "isReadOnly": false },
+          { "key": "isPrimary",    "header": "Primary",    "type": "Checkbox", "width": 70, "isReadOnly": false }
+        ],
+        "validationRules": []
+      }
+    ]
+  },
+  {
+    "id": "fragment-salespolicy",
+    "name": "Fragment_SalesPolicy",
+    "description": "Pricing and payment terms for the customer",
+    "category": "Sales Policy",
+    "createdAt": "2025-01-01T00:00:00Z",
+    "updatedAt": "2025-01-01T00:00:00Z",
+    "fields": [
+      {
+        "id": "f-pricelist",
+        "key": "priceList",
+        "label": "Price List",
+        "type": "ListOfValues",
+        "category": "Standard",
+        "order": 0,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "",
+        "hintText": "",
+        "defaultValue": "Standard",
+        "listOptions": "Standard|Wholesale|VIP|Export",
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-7", "type": "Required", "value": null, "message": "Price List is required." }
+        ]
+      },
+      {
+        "id": "f-paymentterms",
+        "key": "paymentTerms",
+        "label": "Payment Terms",
+        "type": "ListOfValues",
+        "category": "Standard",
+        "order": 1,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "",
+        "hintText": "",
+        "defaultValue": "Net30",
+        "listOptions": "Immediate|Net15|Net30|Net60|Net90",
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-8", "type": "Required", "value": null, "message": "Payment Terms are required." }
+        ]
+      },
+      {
+        "id": "f-creditlimit",
+        "key": "creditLimit",
+        "label": "Credit Limit (€)",
+        "type": "CurrencyInput",
+        "category": "Advanced",
+        "order": 2,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "0.00",
+        "hintText": "GOLD customers require a credit limit > 0",
+        "defaultValue": "0",
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-9",  "type": "Min",          "value": "0",    "message": "Credit limit cannot be negative." },
+          { "id": "r-10", "type": "CrossFragment",
+            "crossFragmentRef": "fragment-masterdata:category",
+            "crossFragmentCondition": "RequiredWhen:GOLD",
+            "message": "Credit Limit is required for GOLD category customers." }
+        ]
+      },
+      {
+        "id": "f-creditdays",
+        "key": "creditDays",
+        "label": "Credit Days",
+        "type": "Number",
+        "category": "Standard",
+        "order": 3,
+        "columnSpan": 2,
+        "isReadOnly": false,
+        "isVisible": true,
+        "placeholder": "0",
+        "hintText": "",
+        "defaultValue": "0",
+        "listOptions": null,
+        "metaServiceKey": null,
+        "gridColumns": null,
+        "validationRules": [
+          { "id": "r-11", "type": "Min", "value": "0",   "message": "Credit days cannot be negative." },
+          { "id": "r-12", "type": "Max", "value": "365", "message": "Credit days cannot exceed 365." }
+        ]
+      }
+    ]
+  }
+]

@@ -1,0 +1,616 @@
+@page "/simulator"
+@inject IFormLayoutRepository  LayoutRepo
+@inject IFormFragmentRepository FragmentRepo
+@inject FormFragmentCache       FragCache
+@inject FormStateContainer      State
+@inject IJSRuntime              JS
+@using System.Text.Json
+@using FAST.FormDesigner.Components.Shared
+@using FAST.FormDesigner.Runtime.Services
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Components
+@using FAST.FormDesigner.Services
+
+<PageTitle>Simulator — FAST.FormDesigner</PageTitle>
+
+<div class="sim-root">
+
+    @* ── Sidebar ── *@
+    <aside class="sim-sidebar">
+        <div class="sim-sidebar-header">
+            <div class="sim-sidebar-title">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                </svg>
+                Simulator
+            </div>
+            <div class="sim-sidebar-sub">Select a layout to test</div>
+        </div>
+
+        <div class="sim-layout-list">
+            @if (_layouts.Any())
+            {
+                @foreach (var layout in _layouts)
+                {
+                    var l = layout;
+                    <div class="sim-layout-item @(_activeLayoutId == l.Id ? "sim-layout-active" : "")"
+                         @onclick="() => LoadLayout(l.Id)">
+                        <div class="sim-layout-icon">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="3" y="3" width="18" height="18" rx="2"/>
+                                <line x1="3" y1="9" x2="21" y2="9"/>
+                                <line x1="9" y1="21" x2="9" y2="9"/>
+                            </svg>
+                        </div>
+                        <div class="sim-layout-info">
+                            <div class="sim-layout-name">@l.Name</div>
+                            <div class="sim-layout-desc">@l.Description</div>
+                        </div>
+                        @if (_activeLayoutId == l.Id)
+                        {
+                            <span class="sim-layout-active-dot">▶</span>
+                        }
+                    </div>
+                }
+            }
+            else
+            {
+                <div class="sim-empty-list">No layouts found.</div>
+            }
+        </div>
+
+        <div class="sim-sidebar-footer">
+            <button class="sim-load-layout-btn" @onclick="() => _loadModal?.Open()">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>
+                </svg>
+                + Load Layout
+            </button>
+        </div>
+    </aside>
+
+    @* ── Main ── *@
+    <div class="sim-main">
+
+        @* ── Topbar ── *@
+        <header class="sim-topbar">
+            <div class="sim-topbar-left">
+                <a href="/" class="sim-back-btn">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                        <polyline points="15 18 9 12 15 6"/>
+                    </svg>
+                    Dashboard
+                </a>
+                <div class="sim-topbar-title">
+                    @(_activeLayout?.Name ?? "No layout selected")
+                </div>
+                @if (_activeLayout is not null)
+                {
+                    <span class="sim-topbar-badge">Runtime</span>
+                }
+            </div>
+            <div class="sim-topbar-actions">
+                @if (_activeLayout is not null)
+                {
+                    <button class="sim-btn sim-btn-ghost" title="Generate test data for all fields"
+                            @onclick="GenerateTestData" disabled="@_generating">
+                        @if (_generating)
+                        { <span class="fd-spinner fd-spinner-sm"></span> }
+                        else
+                        {
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/>
+                            </svg>
+                        }
+                        Generate
+                    </button>
+
+                    <label class="sim-btn sim-btn-ghost" title="Load data from JSON file">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                            <polyline points="17 8 12 3 7 8"/>
+                            <line x1="12" y1="3" x2="12" y2="15"/>
+                        </svg>
+                        Load Data
+                        <InputFile OnChange="HandleDataFileLoaded" accept=".json" style="display:none" />
+                    </label>
+
+                    <button class="sim-btn sim-btn-primary" title="Collect form data"
+                            @onclick="CollectData">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="20 6 9 17 4 12"/>
+                        </svg>
+                        Submit
+                    </button>
+                }
+            </div>
+        </header>
+
+        @* ── Content ── *@
+        <div class="sim-content">
+
+            @* ── Form area ── *@
+            <div class="sim-form-area">
+                @if (_activeLayout is null)
+                {
+                    <div class="sim-no-layout">
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="1.5">
+                            <rect x="3" y="3" width="18" height="18" rx="2"/>
+                            <line x1="3" y1="9" x2="21" y2="9"/>
+                            <line x1="9" y1="21" x2="9" y2="9"/>
+                        </svg>
+                        <div>Select a layout from the sidebar to begin testing</div>
+                    </div>
+                }
+                else
+                {
+                    <div class="sim-form-scroll">
+                        <FastForm Layout="@_activeLayout"
+                                  OnSubmit="HandleFormSubmit"
+                                  OnFieldChanging="HandleFieldChanging"
+                                  @ref="_fastForm" />
+                    </div>
+                }
+            </div>
+
+            @* ── Data panel ── *@
+            <div class="sim-data-panel">
+                <div class="sim-data-tabs">
+                    <button class="sim-data-tab @(_dataTab == 0 ? "active" : "")" @onclick="() => _dataTab = 0">
+                        📥 Input
+                    </button>
+                    <button class="sim-data-tab @(_dataTab == 1 ? "active" : "")" @onclick="() => _dataTab = 1">
+                        📤 Output
+                        @if (_outputJson is not null)
+                        { <span class="sim-data-dot"></span> }
+                    </button>
+                    <button class="sim-data-tab @(_dataTab == 2 ? "active" : "")" @onclick="() => _dataTab = 2">
+                        📋 Log
+                        @if (_logPanel?.HasEntries == true)
+                        { <span class="sim-data-dot sim-log-dot"></span> }
+                    </button>
+                </div>
+
+                <div class="sim-data-body">
+
+                    @* ── INPUT TAB ── *@
+                    @if (_dataTab == 0)
+                    {
+                        <div class="sim-data-toolbar">
+                            <span class="sim-data-label">Input JSON</span>
+                            @if (_inputJson is not null)
+                            {
+                                <button class="sim-copy-btn" @onclick="() => CopyToClipboard(_inputJson)">
+                                    📋 Copy
+                                </button>
+                            }
+                        </div>
+                        <pre class="sim-json-view">@(_inputJson ?? "No data loaded yet.\n\nClick Generate or Load Data\nto populate the form.")</pre>
+                    }
+
+                    @* ── OUTPUT TAB ── *@
+                    else if (_dataTab == 1)
+                    {
+                        <div class="sim-data-toolbar">
+                            <span class="sim-data-label">Output JSON</span>
+                            @if (_outputJson is not null)
+                            {
+                                <button class="sim-copy-btn" @onclick="() => CopyToClipboard(_outputJson)">📋 Copy</button>
+                                <button class="sim-copy-btn" @onclick="DownloadOutput">⬇ Download</button>
+                            }
+                        </div>
+                        @if (_outputJson is not null)
+                        {
+                            <pre class="sim-json-view">@_outputJson</pre>
+                        }
+                        else
+                        {
+                            <div class="sim-json-empty">Click Submit to collect form data.</div>
+                        }
+
+                        @if (_validationErrors.Any())
+                        {
+                            <div class="sim-validation-section">
+                                <div class="sim-validation-title">⚠ Validation Issues (@_validationErrors.Count)</div>
+                                @foreach (var err in _validationErrors)
+                                {
+                                    <div class="sim-validation-item">
+                                        <span class="sim-val-field">@err.FieldKey</span>
+                                        <span class="sim-val-msg">@err.Message</span>
+                                    </div>
+                                }
+                            </div>
+                        }
+                    }
+
+                    @* ── LOG TAB ── *@
+                    else if (_dataTab == 2)
+                    {
+                        <SimLogPanel @ref="_logPanel" />
+                    }
+
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    @* ── Load Layout Modal ── *@
+    <LoadDesignModal @ref="_loadModal"
+                     EntityType="Layout"
+                     IsDirty="false"
+                     OnLayoutLoaded="HandleLayoutLoaded" />
+
+</div>
+
+@code {
+    private List<FormLayout>  _layouts       = new();
+    private HashSet<string>   _localLayouts  = new();   // tracks layouts loaded from local file
+    private LoadDesignModal?  _loadModal;
+    private FormLayout?       _activeLayout;
+    private string?           _activeLayoutId;
+    private FastForm?         _fastForm;
+
+    private int     _dataTab    = 0;
+    private string? _inputJson;
+    private string? _outputJson;
+    private bool    _generating = false;
+    private List<FieldValidationError> _validationErrors = new();
+
+    private SimLogPanel? _logPanel;
+
+    private static readonly JsonSerializerOptions _jsonOpts = new()
+    {
+        WriteIndented = true,
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+    };
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────────
+
+    protected override async Task OnInitializedAsync()
+    {
+        _layouts = await LayoutRepo.GetAllAsync();
+    }
+
+    // ── Layout loaded from modal ─────────────────────────────────────────────────
+
+    private async Task HandleLayoutLoaded(FormLayout layout)
+    {
+        // Replace existing or add new
+        var existing = _layouts.FirstOrDefault(l => l.Id == layout.Id);
+        if (existing is not null)
+            _layouts[_layouts.IndexOf(existing)] = layout;
+        else
+            _layouts.Add(layout);
+
+        // Seed fragments then select
+        await SeedFragments(layout);
+        await LoadLayout(layout.Id, layout);
+        StateHasChanged();
+    }
+
+    // ── Layout loading ────────────────────────────────────────────────────────
+
+    private async Task LoadLayout(string layoutId, FormLayout? preLoaded = null)
+    {
+        _activeLayoutId   = layoutId;
+        _activeLayout     = null;
+        _outputJson       = null;
+        _inputJson        = null;
+        _validationErrors = new();
+        _logPanel?.Clear();
+        State.Reset();
+
+        var layout = preLoaded ?? await LayoutRepo.GetByIdAsync(layoutId);
+        if (layout is not null)
+        {
+            await SeedFragments(layout);
+            _activeLayout = layout;
+        }
+        StateHasChanged();
+    }
+
+    private async Task SeedFragments(FormLayout layout)
+    {
+        var ids = CollectFragmentIds(layout.Containers);
+        foreach (var id in ids)
+        {
+            var cached = await FragCache.GetAsync(id);
+            if (cached is null)
+            {
+                var frag = await FragmentRepo.GetByIdAsync(id);
+                if (frag is not null) FragCache.Seed(frag);
+            }
+        }
+    }
+
+    private static List<string> CollectFragmentIds(List<LayoutNode> containers)
+    {
+        var ids = new List<string>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area &&
+                node.Area?.AssignedFragmentId is not null)
+                ids.Add(node.Area.AssignedFragmentId);
+            if (node.Children.Any())
+                ids.AddRange(CollectFragmentIds(node.Children));
+        }
+        return ids;
+    }
+
+    // ── Data Document helpers ─────────────────────────────────────────────────
+
+    private List<LayoutArea> CollectAreas(List<LayoutNode> containers)
+    {
+        var areas = new List<LayoutArea>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area?.AssignedFragmentId is not null)
+                areas.Add(node.Area);
+            if (node.Children.Any()) areas.AddRange(CollectAreas(node.Children));
+        }
+        return areas;
+    }
+
+    // ── Generate test data ────────────────────────────────────────────────────
+
+    private async Task GenerateTestData()
+    {
+        if (_activeLayout is null || _fastForm is null) return;
+        _generating = true;
+        StateHasChanged();
+
+        // Build generated values as a Data Document dictionary
+        var generated  = new Dictionary<string, object?>();
+        var areas      = CollectAreas(_activeLayout.Containers);
+
+        foreach (var area in areas)
+        {
+            var frag = await FragCache.GetAsync(area.AssignedFragmentId!);
+            if (frag is null) continue;
+
+            var dataKey     = area.DataKey;
+            var instanceKey = string.IsNullOrWhiteSpace(dataKey)
+                ? area.AssignedFragmentId! : dataKey;
+
+            if (frag.IsRepeating)
+            {
+                // Generate one sample row
+                var row = new Dictionary<string, object?>();
+                foreach (var field in frag.Fields.Where(f => f.IsVisible))
+                {
+                    var value = GenerateValue(field);
+                    if (value is not null) row[field.Key] = value;
+                }
+                generated[instanceKey] = new List<Dictionary<string, object?>> { row };
+            }
+            else if (!string.IsNullOrWhiteSpace(dataKey))
+            {
+                // Nested object
+                var obj = new Dictionary<string, object?>();
+                foreach (var field in frag.Fields.Where(f => f.IsVisible))
+                {
+                    var value = GenerateValue(field);
+                    if (value is not null) obj[field.Key] = value;
+                }
+                generated[dataKey] = obj;
+            }
+            else
+            {
+                // Flat root fields
+                foreach (var field in frag.Fields.Where(f => f.IsVisible))
+                {
+                    var value = GenerateValue(field);
+                    if (value is not null) generated[field.Key] = value;
+                }
+            }
+        }
+
+        var json       = JsonSerializer.Serialize(generated, _jsonOpts);
+        _inputJson     = json;
+        _generating    = false;
+        _dataTab       = 0;
+
+        // Use public API — no backdoor state manipulation
+        _fastForm.SetValues(json, merge: false);
+        _fastForm.Refresh();
+
+        StateHasChanged();
+    }
+
+    private static readonly Random _rng = new();
+
+    private static readonly string[] _loremWords =
+        "lorem ipsum dolor sit amet consectetur adipiscing elit sed do eiusmod tempor incididunt ut labore et dolore magna aliqua"
+        .Split(' ');
+
+    private object? GenerateValue(FieldDefinition field)
+    {
+        bool required = field.ValidationRules.Any(r => r.Type == ValidationRuleType.Required);
+
+        switch (field.Type)
+        {
+            case FieldType.Text:
+            case FieldType.TextArea:
+            {
+                var minLen = field.ValidationRules.FirstOrDefault(r => r.Type == ValidationRuleType.MinLength);
+                var maxLen = field.ValidationRules.FirstOrDefault(r => r.Type == ValidationRuleType.MaxLength);
+                var words  = field.Type == FieldType.TextArea ? 8 : 2;
+
+                var text = string.Join(" ", Enumerable.Range(0, words)
+                    .Select(_ => _loremWords[_rng.Next(_loremWords.Length)]));
+
+                // Respect MinLength — pad if needed
+                if (minLen is not null && int.TryParse(minLen.Value, out var mn) && text.Length < mn)
+                    text = text.PadRight(mn, 'x');
+
+                // Respect MaxLength — trim if needed
+                if (maxLen is not null && int.TryParse(maxLen.Value, out var mx) && text.Length > mx)
+                    text = text[..mx];
+
+                return text;
+            }
+
+            case FieldType.Number:
+            {
+                var minR = field.ValidationRules.FirstOrDefault(r => r.Type == ValidationRuleType.Min);
+                var maxR = field.ValidationRules.FirstOrDefault(r => r.Type == ValidationRuleType.Max);
+                var min  = minR is not null && double.TryParse(minR.Value, out var mn) ? (int)mn : 1;
+                var max  = maxR is not null && double.TryParse(maxR.Value, out var mx) ? (int)mx : 1000;
+                if (min > max) max = min + 100;
+                return _rng.Next(min, max + 1);
+            }
+
+            case FieldType.CurrencyInput:
+                return Math.Round(_rng.NextDouble() * 9999 + 1, 2);
+
+            case FieldType.Date:
+                var date = DateTime.Now.AddDays(-_rng.Next(0, 730));
+                return date.ToString("yyyy-MM-dd");
+
+            case FieldType.DateTime:
+                var dt = DateTime.Now.AddDays(-_rng.Next(0, 365)).AddHours(-_rng.Next(0, 24));
+                return dt.ToString("yyyy-MM-ddTHH:mm");
+
+            case FieldType.Checkbox:
+                return required ? true : _rng.Next(2) == 1;
+
+            case FieldType.ListOfValues:
+                if (string.IsNullOrWhiteSpace(field.ListOptions)) return null;
+                var opts = field.ListOptions
+                    .Split('|', StringSplitOptions.RemoveEmptyEntries)
+                    .Select(o => o.Trim())
+                    .Where(o => o.Length > 0)
+                    .ToArray();
+                return opts.Length > 0 ? opts[_rng.Next(opts.Length)] : null;
+
+            case FieldType.CustomerLookup:
+                return "C001";
+
+            case FieldType.ProductSearch:
+                return "P001";
+
+            default:
+                return required ? _loremWords[_rng.Next(_loremWords.Length)] : null;
+        }
+    }
+
+    // ── Load data from file ───────────────────────────────────────────────────
+
+    private async Task HandleDataFileLoaded(InputFileChangeEventArgs e)
+    {
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 2 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            // Use public API — handles flat, nested, and repeating automatically
+            _fastForm?.SetValues(json, merge: false);
+            _fastForm?.Refresh();
+
+            _inputJson = json;
+            _dataTab   = 0;
+            StateHasChanged();
+        }
+        catch (Exception ex)
+        {
+            _inputJson = $"// Error reading file: {ex.Message}";
+            StateHasChanged();
+        }
+    }
+
+    // ── Collect / Submit ──────────────────────────────────────────────────────
+
+    private async Task CollectData()
+    {
+        if (_activeLayout is null || _fastForm is null) return;
+
+        // Use public API — same output as OnSubmit produces
+        _outputJson = _fastForm.GetValues();
+
+        // Run validation and collect errors
+        _validationErrors = new();
+        var areas = CollectAreas(_activeLayout.Containers);
+        foreach (var area in areas)
+        {
+            var fragId      = area.AssignedFragmentId!;
+            var instanceKey = string.IsNullOrWhiteSpace(area.DataKey) ? fragId : area.DataKey;
+            var frag        = await FragCache.GetAsync(fragId);
+            if (frag is null) continue;
+            foreach (var field in frag.Fields.Where(f => f.IsVisible))
+            {
+                var val = State.GetInstanceValue(instanceKey, field.Key);
+                foreach (var rule in field.ValidationRules)
+                {
+                    var err = ValidateField(field, rule, val?.ToString());
+                    if (err is not null)
+                        _validationErrors.Add(new FieldValidationError
+                        {
+                            FieldKey = $"{instanceKey}:{field.Key}",
+                            Message  = err
+                        });
+                }
+            }
+        }
+
+        _dataTab = 1;
+        StateHasChanged();
+    }
+
+    private static string? ValidateField(FieldDefinition field, ValidationRule rule, string? value)
+    {
+        return rule.Type switch
+        {
+            ValidationRuleType.Required when string.IsNullOrWhiteSpace(value)
+                => $"{field.Label} is required.",
+            ValidationRuleType.MinLength when !string.IsNullOrWhiteSpace(value) &&
+                int.TryParse(rule.Value, out var minL) && value.Length < minL
+                => $"{field.Label} must be at least {minL} characters.",
+            ValidationRuleType.MaxLength when !string.IsNullOrWhiteSpace(value) &&
+                int.TryParse(rule.Value, out var maxL) && value.Length > maxL
+                => $"{field.Label} must be at most {maxL} characters.",
+            ValidationRuleType.Min when double.TryParse(value, out var num) &&
+                double.TryParse(rule.Value, out var minV) && num < minV
+                => $"{field.Label} must be ≥ {minV}.",
+            ValidationRuleType.Max when double.TryParse(value, out var num2) &&
+                double.TryParse(rule.Value, out var maxV) && num2 > maxV
+                => $"{field.Label} must be ≤ {maxV}.",
+            _ => null
+        };
+    }
+
+    private Task HandleFormSubmit(Dictionary<string, object?> payload)
+    {
+        // Use the public API so both Submit paths produce identical JSON
+        _outputJson = _fastForm is not null
+            ? _fastForm.GetValues()
+            : JsonSerializer.Serialize(payload, _jsonOpts);
+        _dataTab    = 1;
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    // ── Field change log ──────────────────────────────────────────────────────
+
+    private Task<FieldChangingResult> HandleFieldChanging(FieldChangingArgs args)
+    {
+        _logPanel?.AddEntry(args);
+        return Task.FromResult(FieldChangingResult.Accepted());
+    }
+
+    // ── Clipboard / Download ──────────────────────────────────────────────────
+
+    private async Task CopyToClipboard(string text)
+    {
+        try { await JS.InvokeVoidAsync("navigator.clipboard.writeText", text); }
+        catch { }
+    }
+
+    private async Task DownloadOutput()
+    {
+        if (_outputJson is null) return;
+        await JS.InvokeVoidAsync("downloadJson",
+            $"{_activeLayout?.Id ?? "form"}-data.json", _outputJson);
+    }
+}

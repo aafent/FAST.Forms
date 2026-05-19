@@ -1,0 +1,523 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@using System.Text.Json
+@inject IFormFragmentRepository FragmentRepo
+@inject IFormLayoutRepository   LayoutRepo
+@inject FormFragmentCache       FragCache
+@inject IJSRuntime              JS
+
+@if (!_visible) { return; }
+
+@* ── Backdrop ── *@
+<div class="fd-modal-backdrop" @onclick="HandleBackdropClick"></div>
+
+@* ── Modal ── *@
+<div class="fd-modal-dialog">
+
+    <div class="fd-modal-header">
+        <span class="fd-modal-title">Load @_entityLabel</span>
+        <button class="fd-modal-close" @onclick="Close">✕</button>
+    </div>
+
+    @* ── Unsaved changes warning ── *@
+    @if (_showDirtyWarning)
+    {
+        <div class="fd-modal-warning">
+            <div class="fd-warning-icon">⚠</div>
+            <div class="fd-warning-body">
+                <div class="fd-warning-title">You have unsaved changes</div>
+                <div class="fd-warning-text">Loading a new design will discard your current changes. Are you sure?</div>
+                <div class="fd-warning-actions">
+                    <button class="fd-btn fd-btn-danger fd-btn-sm" @onclick="ConfirmLoad">Load anyway</button>
+                    <button class="fd-btn fd-btn-ghost fd-btn-sm" @onclick="() => _showDirtyWarning = false">Cancel</button>
+                </div>
+            </div>
+        </div>
+    }
+    else
+    {
+        @* ── Missing fragments warning ── *@
+        @if (_missingFragments.Any())
+        {
+            <div class="fd-modal-missing-frags">
+                <div class="fd-missing-frags-icon">⚠</div>
+                <div class="fd-missing-frags-body">
+                    <div class="fd-missing-frags-title">Missing Fragment Files</div>
+                    <div class="fd-missing-frags-text">
+                        This layout references @_missingFragments.Count fragment(s) that cannot be found.
+                        Please add them to the Fragment Library first using the
+                        <strong>"+ Add Fragment"</strong> button in the left panel, then try loading again.
+                    </div>
+                    <ul class="fd-missing-frags-list">
+                        @foreach (var m in _missingFragments)
+                        {
+                            <li>
+                                @if (!string.IsNullOrWhiteSpace(m.Name))
+                                {
+                                    <strong>@m.Name</strong>
+                                    <span style="font-size:10px; color:#b45309; margin-left:6px;">(@m.Id[..Math.Min(8, m.Id.Length)]…)</span>
+                                }
+                                else
+                                {
+                                    <code>@m.Id</code>
+                                }
+                            </li>
+                        }
+                    </ul>
+                </div>
+            </div>
+        }
+
+    @* ── Source tabs ── *@
+        <div class="fd-modal-tabs">
+            <button class="fd-modal-tab @(_tab == 0 ? "active" : "")" @onclick="() => SwitchTab(0)">
+                🗄 From Repository
+            </button>
+            <button class="fd-modal-tab @(_tab == 1 ? "active" : "")" @onclick="() => SwitchTab(1)">
+                📁 From Local File
+            </button>
+        </div>
+
+        @* ══════════════════════════════════════════════════════════════════════
+           TAB 0: FROM API
+        ══════════════════════════════════════════════════════════════════════ *@
+        @if (_tab == 0)
+        {
+            <div class="fd-modal-body">
+
+                @if (_loadingList)
+                {
+                    <div class="fd-modal-loading">
+                        <span class="fd-spinner fd-spinner-sm"></span>
+                        Loading available designs…
+                    </div>
+                }
+                else if (!_apiItems.Any())
+                {
+                    <div class="fd-modal-empty">No designs found on the server.</div>
+                }
+                else
+                {
+                @if (_apiError is not null)
+                {
+                    <div class="fd-load-api-error">⚠ @_apiError</div>
+                }
+                    <div class="fd-load-list">
+                        @foreach (var item in _apiItems)
+                        {
+                            var i = item;
+                            <div class="fd-load-item @(_selectedApiId == i.Id ? "fd-load-item-selected" : "")"
+                                 @onclick="() => _selectedApiId = i.Id">
+                                <div class="fd-load-item-icon">@(_entityLabel == "Layout" ? "📐" : "⊞")</div>
+                                <div class="fd-load-item-info">
+                                    <div class="fd-load-item-name">@i.Name</div>
+                                    <div class="fd-load-item-meta">@i.Description</div>
+                                </div>
+                                @if (_selectedApiId == i.Id)
+                                {
+                                    <span class="fd-load-item-check">✓</span>
+                                }
+                            </div>
+                        }
+                    </div>
+                }
+
+            </div>
+
+            <div class="fd-modal-footer">
+                <button class="fd-btn fd-btn-ghost" @onclick="Close">Cancel</button>
+                <button class="fd-btn fd-btn-primary"
+                        disabled="@(string.IsNullOrEmpty(_selectedApiId) || _loadingItem)"
+                        @onclick="LoadFromApi">
+                    @if (_loadingItem)
+                    {
+                        <span class="fd-spinner fd-spinner-sm"></span>
+                    }
+                    Load
+                </button>
+            </div>
+        }
+
+        @* ══════════════════════════════════════════════════════════════════════
+           TAB 1: FROM LOCAL FILE
+        ══════════════════════════════════════════════════════════════════════ *@
+        @if (_tab == 1)
+        {
+            <div class="fd-modal-body">
+
+                <div class="fd-load-local-area">
+                    <div class="fd-load-local-icon">📁</div>
+                    <div class="fd-load-local-title">Select a JSON file from your computer</div>
+                    <div class="fd-load-local-hint">
+                        The file must be a valid @_entityLabel file
+                        (@(EntityType == "Layout" ? ".layout" : ".fieldset"), previously exported via "Save Local")
+                    </div>
+
+                    <label class="fd-btn fd-btn-secondary fd-load-file-btn">
+                        Browse…
+                        <InputFile OnChange="HandleFileSelected" accept="@(EntityType == "Layout" ? ".layout" : ".fieldset")" style="display:none" />
+                    </label>
+
+                    @if (!string.IsNullOrEmpty(_localFileName))
+                    {
+                        <div class="fd-load-local-selected">
+                            <span class="fd-load-file-icon">📄</span>
+                            <span class="fd-load-file-name">@_localFileName</span>
+                            @if (_localError is not null)
+                            {
+                                <span class="fd-load-file-error">⚠ @_localError</span>
+                            }
+                            else
+                            {
+                                <span class="fd-load-file-ok">✓ Ready to load</span>
+                            }
+                        </div>
+                    }
+                </div>
+
+            </div>
+
+            <div class="fd-modal-footer">
+                <button class="fd-btn fd-btn-ghost" @onclick="Close">Cancel</button>
+                <button class="fd-btn fd-btn-primary"
+                        disabled="@(_localData is null || _localError is not null)"
+                        @onclick="LoadFromLocal">
+                    Load
+                </button>
+            </div>
+        }
+    }
+
+</div>
+
+@code {
+    // ── Parameters ────────────────────────────────────────────────────────────
+
+    /// <summary>"Layout" or "Fragment"</summary>
+    [Parameter] public string EntityType { get; set; } = "Layout";
+
+    /// <summary>True if the current design has unsaved changes.</summary>
+    [Parameter] public bool IsDirty { get; set; }
+
+    /// <summary>Fired when a layout is successfully loaded.</summary>
+    [Parameter] public EventCallback<FormLayout> OnLayoutLoaded { get; set; }
+
+    /// <summary>Fired when a fragment is successfully loaded.</summary>
+    [Parameter] public EventCallback<FormFragment> OnFragmentLoaded { get; set; }
+
+    // ── State ─────────────────────────────────────────────────────────────────
+
+    private bool    _visible          = false;
+    private int     _tab              = 0;
+    private bool    _showDirtyWarning = false;
+    private string  _entityLabel      => EntityType == "Layout" ? "Layout" : "Fragment";
+
+    // API tab
+    private bool              _loadingList  = false;
+    private bool              _loadingItem  = false;
+    private List<ApiListItem> _apiItems     = new();
+    private string?           _selectedApiId;
+    private string?           _apiError;
+
+    // Missing fragments (Id, DisplayName)
+    private List<(string Id, string Name)> _missingFragments = new();
+
+    // Local tab
+    private string?  _localFileName;
+    private string?  _localError;
+    private object?  _localData;   // FormLayout or FormFragment
+
+    // Pending load (held while dirty warning is shown)
+    private Func<Task>? _pendingLoad;
+
+    // ── Public API ────────────────────────────────────────────────────────────
+
+    public void SwitchToLocal() { _tab = 1; StateHasChanged(); }
+
+    public void Open()
+    {
+        _visible          = true;
+        _tab              = 0;
+        _showDirtyWarning = false;
+        _selectedApiId    = null;
+        _apiError         = null;
+        _missingFragments = new();
+        _localFileName    = null;
+        _localError       = null;
+        _localData        = null;
+        _pendingLoad      = null;
+        InvokeAsync(async () => { await LoadApiList(); StateHasChanged(); });
+    }
+
+    public void Close()
+    {
+        _visible = false;
+        StateHasChanged();
+    }
+
+    // ── Tab switching ─────────────────────────────────────────────────────────
+
+    private async Task SwitchTab(int tab)
+    {
+        _tab = tab;
+        if (tab == 0 && !_apiItems.Any())
+            await LoadApiList();
+    }
+
+    // ── API tab ───────────────────────────────────────────────────────────────
+
+    private async Task LoadApiList()
+    {
+        _loadingList = true;
+        StateHasChanged();
+        try
+        {
+            if (EntityType == "Layout")
+            {
+                var layouts = await LayoutRepo.GetAllAsync();
+                _apiItems = layouts.Select(l => new ApiListItem
+                {
+                    Id          = l.Id,
+                    Name        = l.Name,
+                    Description = l.Description
+                }).ToList();
+            }
+            else
+            {
+                var summaries = await FragmentRepo.GetAllSummariesAsync();
+                _apiItems = summaries.Select(s => new ApiListItem
+                {
+                    Id          = s.Id,
+                    Name        = s.Name,
+                    Description = $"{s.FieldCount} fields · {s.Category}"
+                }).ToList();
+            }
+        }
+        catch { _apiItems = new(); }
+        finally { _loadingList = false; StateHasChanged(); }
+    }
+
+    // ── Missing fragment check ──────────────────────────────────────────────────
+
+    private async Task<List<(string Id, string Name)>> CheckMissingFragments(FormLayout layout)
+    {
+        var missing = new List<(string Id, string Name)>();
+        var ids   = CollectAssignedFragmentIds(layout.Containers);
+        var names = CollectAssignedFragmentNames(layout.Containers);
+        foreach (var id in ids)
+        {
+            var cached = await FragCache.GetAsync(id);
+            if (cached is not null) continue;
+
+            var frag = await FragmentRepo.GetByIdAsync(id);
+            if (frag is not null) { FragCache.Seed(frag); continue; }
+
+            names.TryGetValue(id, out var storedName);
+            missing.Add((id, storedName ?? string.Empty));
+        }
+        return missing;
+    }
+
+    // Also add CollectAssignedFragment helpers
+    private static List<string> CollectAssignedFragmentIds(List<LayoutNode> containers)
+    {
+        var ids = new List<string>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area is not null &&
+                !string.IsNullOrWhiteSpace(node.Area.AssignedFragmentId))
+                ids.Add(node.Area.AssignedFragmentId);
+            if (node.Children.Any()) ids.AddRange(CollectAssignedFragmentIds(node.Children));
+        }
+        return ids;
+    }
+
+    private static Dictionary<string, string?> CollectAssignedFragmentNames(List<LayoutNode> containers)
+    {
+        var dict = new Dictionary<string, string?>();
+        foreach (var node in containers)
+        {
+            if (node.Type == ContainerType.Area && node.Area is not null &&
+                !string.IsNullOrWhiteSpace(node.Area.AssignedFragmentId))
+                dict[node.Area.AssignedFragmentId] = node.Area.AssignedFragmentName;
+            if (node.Children.Any())
+                foreach (var kv in CollectAssignedFragmentNames(node.Children))
+                    dict[kv.Key] = kv.Value;
+        }
+        return dict;
+    }
+
+
+    private async Task LoadFromApi()
+    {
+        if (string.IsNullOrEmpty(_selectedApiId)) return;
+
+        var load = async () =>
+        {
+            _loadingItem = true;
+            StateHasChanged();
+            try
+            {
+                if (EntityType == "Layout")
+                {
+                    var layout = await LayoutRepo.GetByIdAsync(_selectedApiId);
+                    if (layout is null)
+                        _apiError = "Could not load the selected Layout from the repository.";
+                    else if (layout.Containers is null)
+                        _apiError = "The selected file does not appear to be a valid Layout design.";
+                    else
+                    {
+                        var missing = await CheckMissingFragments(layout);
+                        if (missing.Any())
+                        { _missingFragments = missing; _apiError = null; StateHasChanged(); }
+                        else
+                        { Close(); await OnLayoutLoaded.InvokeAsync(layout); }
+                    }
+                }
+                else
+                {
+                    var fragment = await FragmentRepo.GetByIdAsync(_selectedApiId);
+                    if (fragment is null)
+                        _apiError = "Could not load the selected Fragment from the repository.";
+                    else if (fragment.Fields is null)
+                        _apiError = "The selected file does not appear to be a valid Fragment design.";
+                    else
+                    { Close(); await OnFragmentLoaded.InvokeAsync(fragment); }
+                }
+            }
+            finally { _loadingItem = false; StateHasChanged(); }
+        };
+
+        await TriggerLoad(load);
+    }
+
+    // ── Local tab ─────────────────────────────────────────────────────────────
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _localFileName = e.File.Name;
+        _localError    = null;
+        _localData     = null;
+
+        try
+        {
+            using var stream = e.File.OpenReadStream(maxAllowedSize: 5 * 1024 * 1024);
+            using var reader = new System.IO.StreamReader(stream);
+            var json = await reader.ReadToEndAsync();
+
+            var opts = new JsonSerializerOptions { PropertyNameCaseInsensitive = true, Converters = { new System.Text.Json.Serialization.JsonStringEnumConverter() } };
+
+            // Pre-check: inspect JSON keys to catch wrong file type early
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+            bool hasContainers = root.TryGetProperty("containers", out _) || root.TryGetProperty("Containers", out _);
+            bool hasFields     = root.TryGetProperty("fields", out _)     || root.TryGetProperty("Fields", out _);
+
+            if (EntityType == "Layout" && hasFields && !hasContainers)
+            {
+                _localError = "Wrong file type — this is a Fragment design file, not a Layout. Please select a Layout JSON file.";
+            }
+            else if (EntityType == "Fragment" && hasContainers && !hasFields)
+            {
+                _localError = "Wrong file type — this is a Layout design file, not a Fragment. Please select a Fragment JSON file.";
+            }
+            else
+            {
+                if (EntityType == "Layout")
+                    _localData = JsonSerializer.Deserialize<FormLayout>(json, opts);
+                else
+                    _localData = JsonSerializer.Deserialize<FormFragment>(json, opts);
+            }
+
+            if (_localData is null)
+            {
+                _localError = $"This file could not be read. Please select a valid {_entityLabel} JSON file.";
+            }
+            else if (EntityType == "Layout")
+            {
+                var lay = _localData as FormLayout;
+                if (lay is null || string.IsNullOrWhiteSpace(lay.Id))
+                    _localError = "Invalid file — this does not appear to be a Layout design.";
+                else if (lay.Containers is null)
+                    _localError = "Invalid Layout file — missing Containers. This may be a Fragment file loaded by mistake.";
+            }
+            else if (EntityType == "Fragment")
+            {
+                var frag = _localData as FormFragment;
+                if (frag is null || string.IsNullOrWhiteSpace(frag.Id))
+                    _localError = "Invalid file — this does not appear to be a Fragment design.";
+                else if (frag.Fields is null)
+                    _localError = "Invalid Fragment file — missing Fields. This may be a Layout file loaded by mistake.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _localError = "Error reading file: " + ex.Message;
+        }
+
+        StateHasChanged();
+    }
+
+    private async Task LoadFromLocal()
+    {
+        if (_localData is null) return;
+
+        var data = _localData;
+
+        // For layouts, check for missing fragments first
+        if (EntityType == "Layout" && data is FormLayout layoutToCheck)
+        {
+            var missing = await CheckMissingFragments(layoutToCheck);
+            if (missing.Any())
+            {
+                _missingFragments = missing;
+                StateHasChanged();
+                return;
+            }
+        }
+
+        var load = async () =>
+        {
+            Close();
+            if (EntityType == "Layout" && data is FormLayout layout)
+                await OnLayoutLoaded.InvokeAsync(layout);
+            else if (EntityType == "Fragment" && data is FormFragment fragment)
+                await OnFragmentLoaded.InvokeAsync(fragment);
+        };
+
+        await TriggerLoad(load);
+    }
+
+    // ── Dirty guard ───────────────────────────────────────────────────────────
+
+    private async Task TriggerLoad(Func<Task> load)
+    {
+        if (IsDirty)
+        {
+            _pendingLoad      = load;
+            _showDirtyWarning = true;
+            StateHasChanged();
+        }
+        else
+        {
+            await load();
+        }
+    }
+
+    private async Task ConfirmLoad()
+    {
+        _showDirtyWarning = false;
+        if (_pendingLoad is not null)
+            await _pendingLoad();
+        _pendingLoad = null;
+    }
+
+    private void HandleBackdropClick() => Close();
+
+    // ── Helpers ───────────────────────────────────────────────────────────────
+
+    private record ApiListItem(string Id, string Name, string Description)
+    {
+        public ApiListItem() : this(string.Empty, string.Empty, string.Empty) { }
+    }
+}

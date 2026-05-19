@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FAST.FormDesigner</title>
+    <base href="/" />
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="css/fd-editor.css" rel="stylesheet" />
+    <style>
+        #blazor-error-ui {
+            display: none;
+            position: fixed;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            padding: 8px 16px;
+            background: #ffecec;
+            border-top: 1px solid #fca5a5;
+            font-size: 13px;
+            font-family: 'Inter', system-ui, sans-serif;
+            z-index: 9999;
+        }
+        #blazor-error-ui.blazor-error-boundary { display: block; }
+    </style>
+</head>
+
+<body>
+    <div id="app">
+        <div style="display:flex;align-items:center;justify-content:center;height:100vh;font-family:'Inter',system-ui,sans-serif;color:#64748b;">
+            <div style="text-align:center;">
+                <div style="width:36px;height:36px;border:3px solid #e2e8f0;border-top-color:#6366f1;border-radius:50%;animation:spin 0.7s linear infinite;margin:0 auto 12px;"></div>
+                <div>Loading FAST.FormDesigner…</div>
+            </div>
+        </div>
+        <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
+    </div>
+
+    <div id="blazor-error-ui">
+        An unhandled error has occurred.
+        <a href="" class="reload">Reload</a>
+        <a class="dismiss">🗙</a>
+    </div>
+
+    <script src="_framework/blazor.webassembly.js"></script>
+    <script>
+        // Measure a DOM element and report back to Blazor
+        window.getElementDimensions = function(dotnetRef, elementId) {
+            // Called by LayoutPreview after first render
+            // We use a small timeout so the DOM has settled
+        };
+
+        // Called with a real element reference from Blazor
+        window.measureElement = function(element) {
+            if (!element) return [1100, 800];
+            return [element.clientWidth, element.clientHeight];
+        };
+
+        // Observe canvas size and notify Blazor component
+        window.focusElement = function(element) {
+            if (element) { element.focus(); element.select(); }
+        };
+
+        window.scrollCanvas = function(selector, direction) {
+            const el = typeof selector === 'string'
+                ? document.querySelector(selector)
+                : selector;
+            if (!el) return;
+            const canvas = document.querySelector('.fd-preview-canvas');
+            switch(direction) {
+                case 'top':
+                    el.scrollTop = 0;
+                    if (canvas) canvas.scrollTop = 0;
+                    break;
+                case 'bottom':
+                    el.scrollTop = el.scrollHeight;
+                    if (canvas) canvas.scrollTop = canvas.scrollHeight;
+                    break;
+                case 'left':
+                    el.scrollLeft = 0;
+                    if (canvas) canvas.scrollLeft = 0;
+                    break;
+                case 'right':
+                    el.scrollLeft = el.scrollWidth;
+                    if (canvas) canvas.scrollLeft = canvas.scrollWidth;
+                    break;
+                case 'home':
+                    el.scrollTop = 0; el.scrollLeft = 0;
+                    if (canvas) { canvas.scrollTop = 0; canvas.scrollLeft = 0; }
+                    break;
+            }
+        };
+
+        window.downloadJson = function(filename, jsonContent) {
+            const blob = new Blob([jsonContent], { type: 'application/json' });
+            const url  = URL.createObjectURL(blob);
+            const a    = document.createElement('a');
+            a.href     = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        };
+
+        window.observeCanvasSize = function(element, dotnetRef) {
+            if (!element || !dotnetRef) return;
+            const report = () => {
+                dotnetRef.invokeMethodAsync('SetCanvasDimensions',
+                    element.clientWidth,
+                    element.clientHeight);
+            };
+            report();
+            const ro = new ResizeObserver(report);
+            ro.observe(element);
+        };
+    </script>
+</body>
+
+</html>

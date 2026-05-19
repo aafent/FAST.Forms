@@ -1,0 +1,12 @@
+{
+  "profiles": {
+    "FAST.FormDesigner": {
+      "commandName": "Project",
+      "launchBrowser": true,
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      },
+      "applicationUrl": "https://localhost:48319;http://localhost:48320"
+    }
+  }
+}

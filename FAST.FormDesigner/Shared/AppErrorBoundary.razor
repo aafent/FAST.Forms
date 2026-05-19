@@ -1,0 +1,17 @@
+@namespace FAST.FormDesigner.Shared
+@using Microsoft.AspNetCore.Components.Web
+@inherits ErrorBoundary
+
+@if (CurrentException is null)
+{
+    @ChildContent
+}
+else
+{
+    <div style="padding:20px;background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;margin:20px;font-family:'Inter',system-ui,sans-serif;">
+        <div style="font-weight:700;color:#ef4444;margin-bottom:8px;">An error occurred</div>
+        <div style="font-size:13px;color:#dc2626;margin-bottom:12px;">@CurrentException.Message</div>
+        <pre style="font-size:11px;color:#64748b;white-space:pre-wrap;overflow:auto;max-height:200px;">@CurrentException.StackTrace</pre>
+        <button onclick="location.reload()" style="margin-top:12px;padding:6px 16px;background:#6366f1;color:white;border:none;border-radius:5px;cursor:pointer;font-size:13px;">Reload</button>
+    </div>
+}

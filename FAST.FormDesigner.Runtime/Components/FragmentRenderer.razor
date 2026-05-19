@@ -1,0 +1,85 @@
+@using FAST.FormDesigner.Runtime.Models
+@using FAST.FormDesigner.Runtime.Services
+@inject FormFragmentCache Cache
+
+@if (_loading)
+{
+    <div class="fd-fragment-loading">
+        <span class="fd-spinner"></span>
+        Loading fragment…
+    </div>
+}
+else if (_fragment is null)
+{
+    <div class="fd-fragment-error">
+        ⚠ Fragment not found: <code>@FragmentId</code>
+    </div>
+}
+else
+{
+    @if (_fragment.IsRepeating)
+    {
+        <RepeatingFragmentRenderer Fragment="@_fragment"
+                                   InstanceKey="@_instanceKey"
+                                   OnFieldChanging="OnFieldChanging" />
+    }
+    else
+    {
+        <div class="fd-fragment @(_highlight ? "fd-fragment-highlight" : "")">
+
+            @if (!string.IsNullOrWhiteSpace(_fragment.Description))
+            {
+                <div class="fd-fragment-desc">@_fragment.Description</div>
+            }
+
+            <div class="fd-fields-grid">
+                @foreach (var field in _fragment.Fields.OrderBy(f => f.Order))
+                {
+                    @if (field.IsVisible)
+                    {
+                        <FieldRenderer Field="@field"
+                                       FragmentId="@_instanceKey"
+                                       DataKey="@DataKey"
+                                       OnFieldChanging="OnFieldChanging" />
+                    }
+                }
+            </div>
+
+        </div>
+    }
+}
+
+@code {
+    /// <summary>The ID of the FormFragment to load and render.</summary>
+    [Parameter, EditorRequired] public string FragmentId   { get; set; } = string.Empty;
+
+    /// <summary>State scope key — DataKey if set, otherwise FragmentId.</summary>
+    [Parameter] public string InstanceKey { get; set; } = string.Empty;
+
+    /// <summary>The DataKey from the AreaDefinition. Passed through to FieldRenderer for args context.</summary>
+    [Parameter] public string? DataKey { get; set; }
+
+    /// <summary>When true, renders a highlight border.</summary>
+    [Parameter] public bool IsHighlighted { get; set; }
+
+    /// <summary>Field change interceptor — passed down from FastForm.</summary>
+    [Parameter] public Func<FieldChangingArgs, Task<FieldChangingResult>>? OnFieldChanging { get; set; }
+
+    private string _instanceKey => string.IsNullOrWhiteSpace(InstanceKey) ? FragmentId : InstanceKey;
+
+    private FormFragment? _fragment;
+    private bool          _loading   = true;
+    private bool          _highlight;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _highlight = IsHighlighted;
+
+        if (!string.IsNullOrWhiteSpace(FragmentId))
+        {
+            _loading  = true;
+            _fragment = await Cache.GetAsync(FragmentId);
+            _loading  = false;
+        }
+    }
+}

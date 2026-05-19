@@ -1,0 +1,109 @@
+{
+  "id": "layout-customer-management",
+  "name": "Customer Management",
+  "description": "Main customer master form with address, contacts and sales policy",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "containers": [
+    {
+      "id": "container-header",
+      "label": "Master Data",
+      "type": "Area",
+      "order": 0,
+      "columnSpan": 4,
+      "children": [],
+      "area": {
+        "id": "area-header",
+        "label": "Master Data",
+        "columnSpan": 4,
+        "assignedFragmentId": "fragment-masterdata",
+        "placeholderHint": "Drop Master Data fragment here"
+      }
+    },
+    {
+      "id": "container-tabs",
+      "label": "Details",
+      "type": "TabControl",
+      "order": 1,
+      "columnSpan": 4,
+      "area": null,
+      "children": [
+        {
+          "id": "tab-address",
+          "label": "Address",
+          "type": "TabPage",
+          "order": 0,
+          "columnSpan": 4,
+          "area": null,
+          "children": [
+            {
+              "id": "container-address-area",
+              "label": "Address",
+              "type": "Area",
+              "order": 0,
+              "columnSpan": 4,
+              "children": [],
+              "area": {
+                "id": "area-address",
+                "label": "Address",
+                "columnSpan": 4,
+                "assignedFragmentId": "fragment-address",
+                "placeholderHint": "Drop Address fragment here"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-contacts",
+          "label": "Contacts",
+          "type": "TabPage",
+          "order": 1,
+          "columnSpan": 4,
+          "area": null,
+          "children": [
+            {
+              "id": "container-contacts-area",
+              "label": "Contacts",
+              "type": "Area",
+              "order": 0,
+              "columnSpan": 4,
+              "children": [],
+              "area": {
+                "id": "area-contacts",
+                "label": "Contacts",
+                "columnSpan": 4,
+                "assignedFragmentId": "fragment-contacts",
+                "placeholderHint": "Drop Contacts fragment here"
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-salespolicy",
+          "label": "Sales Policy",
+          "type": "TabPage",
+          "order": 2,
+          "columnSpan": 4,
+          "area": null,
+          "children": [
+            {
+              "id": "container-sales-area",
+              "label": "Sales Policy",
+              "type": "Area",
+              "order": 0,
+              "columnSpan": 4,
+              "children": [],
+              "area": {
+                "id": "area-salespolicy",
+                "label": "Sales Policy",
+                "columnSpan": 4,
+                "assignedFragmentId": "fragment-salespolicy",
+                "placeholderHint": "Drop Sales Policy fragment here"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

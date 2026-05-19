@@ -1,0 +1,10 @@
+@page "/fragment-designer"
+@page "/fragment-designer/{FragmentId}"
+
+<PageTitle>Fragment Designer — FAST.FormDesigner</PageTitle>
+
+<FragmentDesigner FragmentId="@FragmentId" />
+
+@code {
+    [Parameter] public string? FragmentId { get; set; }
+}

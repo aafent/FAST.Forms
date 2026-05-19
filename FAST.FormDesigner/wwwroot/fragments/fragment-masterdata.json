@@ -1,0 +1,96 @@
+{
+  "id": "fragment-masterdata",
+  "name": "Master Data",
+  "description": "Core customer identification fields",
+  "category": "Master Data",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "fields": [
+    {
+      "id": "f-customercode",
+      "key": "customerCode",
+      "label": "Customer Code",
+      "type": "CustomerLookup",
+      "category": "Advanced",
+      "order": 0,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "Search customer\u2026",
+      "hintText": "Type at least 2 characters to search",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": "CustomerLookup",
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-1",
+          "type": "Required",
+          "value": null,
+          "message": "Customer Code is required."
+        }
+      ]
+    },
+    {
+      "id": "f-customername",
+      "key": "customerName",
+      "label": "Customer Name",
+      "type": "Text",
+      "category": "Standard",
+      "order": 1,
+      "columnSpan": 2,
+      "isReadOnly": true,
+      "isVisible": true,
+      "placeholder": "Auto-filled from lookup",
+      "hintText": "Filled automatically when a customer is selected",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": []
+    },
+    {
+      "id": "f-taxnumber",
+      "key": "taxNumber",
+      "label": "Tax Number",
+      "type": "Text",
+      "category": "Standard",
+      "order": 2,
+      "columnSpan": 2,
+      "isReadOnly": true,
+      "isVisible": true,
+      "placeholder": "Auto-filled from lookup",
+      "hintText": "",
+      "defaultValue": null,
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": []
+    },
+    {
+      "id": "f-category",
+      "key": "category",
+      "label": "Category",
+      "type": "ListOfValues",
+      "category": "Standard",
+      "order": 3,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "",
+      "hintText": "Affects credit limit rules in Sales Policy",
+      "defaultValue": null,
+      "listOptions": "BRONZE|SILVER|GOLD|PLATINUM",
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-2",
+          "type": "Required",
+          "value": null,
+          "message": "Category is required."
+        }
+      ]
+    }
+  ]
+}

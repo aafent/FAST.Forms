@@ -1,0 +1,123 @@
+{
+  "id": "fragment-salespolicy",
+  "name": "Fragment_SalesPolicy",
+  "description": "Pricing and payment terms for the customer",
+  "category": "Sales Policy",
+  "createdAt": "2025-01-01T00:00:00Z",
+  "updatedAt": "2025-01-01T00:00:00Z",
+  "fields": [
+    {
+      "id": "f-pricelist",
+      "key": "priceList",
+      "label": "Price List",
+      "type": "ListOfValues",
+      "category": "Standard",
+      "order": 0,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "",
+      "hintText": "",
+      "defaultValue": "Standard",
+      "listOptions": "Standard|Wholesale|VIP|Export",
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-7",
+          "type": "Required",
+          "value": null,
+          "message": "Price List is required."
+        }
+      ]
+    },
+    {
+      "id": "f-paymentterms",
+      "key": "paymentTerms",
+      "label": "Payment Terms",
+      "type": "ListOfValues",
+      "category": "Standard",
+      "order": 1,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "",
+      "hintText": "",
+      "defaultValue": "Net30",
+      "listOptions": "Immediate|Net15|Net30|Net60|Net90",
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-8",
+          "type": "Required",
+          "value": null,
+          "message": "Payment Terms are required."
+        }
+      ]
+    },
+    {
+      "id": "f-creditlimit",
+      "key": "creditLimit",
+      "label": "Credit Limit (\u20ac)",
+      "type": "CurrencyInput",
+      "category": "Advanced",
+      "order": 2,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "0.00",
+      "hintText": "GOLD customers require a credit limit > 0",
+      "defaultValue": "0",
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-9",
+          "type": "Min",
+          "value": "0",
+          "message": "Credit limit cannot be negative."
+        },
+        {
+          "id": "r-10",
+          "type": "CrossFragment",
+          "crossFragmentRef": "fragment-masterdata:category",
+          "crossFragmentCondition": "RequiredWhen:GOLD",
+          "message": "Credit Limit is required for GOLD category customers."
+        }
+      ]
+    },
+    {
+      "id": "f-creditdays",
+      "key": "creditDays",
+      "label": "Credit Days",
+      "type": "Number",
+      "category": "Standard",
+      "order": 3,
+      "columnSpan": 2,
+      "isReadOnly": false,
+      "isVisible": true,
+      "placeholder": "0",
+      "hintText": "",
+      "defaultValue": "0",
+      "listOptions": null,
+      "metaServiceKey": null,
+      "gridColumns": null,
+      "validationRules": [
+        {
+          "id": "r-11",
+          "type": "Min",
+          "value": "0",
+          "message": "Credit days cannot be negative."
+        },
+        {
+          "id": "r-12",
+          "type": "Max",
+          "value": "365",
+          "message": "Credit days cannot exceed 365."
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+@page "/layout-designer"
+@page "/layout-designer/{LayoutId}"
+
+<PageTitle>Layout Designer — FAST.FormDesigner</PageTitle>
+
+<LayoutDesigner LayoutId="@LayoutId" />
+
+@code {
+    [Parameter] public string? LayoutId { get; set; }
+}

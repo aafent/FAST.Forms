@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>FAST.FormDesigner.Runtime</RootNamespace>
+    <AssemblyName>FAST.FormDesigner.Runtime</AssemblyName>
+    <PackageId>FAST.FormDesigner.Runtime</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>FAST</Authors>
+    <Description>Runtime Blazor components for FAST.FormDesigner</Description>
+    <PackageTags>blazor;forms;dynamic-forms;json;runtime;wasm</PackageTags>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <GeneratePackageOnBuild>false</GeneratePackageOnBuild>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.Components.Web" Version="8.0.0" />
+    <PackageReference Include="FluentValidation"                    Version="11.9.0" />
+  </ItemGroup>
+
+</Project>
